@@ -1,6 +1,4 @@
 export async function renderDespacho(el, { supabase, currentUser }) {
-  const canViewAll = ['jefe','logistica'].includes(currentUser.rol)
-
   el.innerHTML = `
     <div class="page-header">
       <div class="page-title-group"><span class="page-title">Despacho</span><span class="page-subtitle" id="despacho-sub"></span></div>
@@ -94,7 +92,10 @@ export async function renderDespacho(el, { supabase, currentUser }) {
     const km = parseInt(el.querySelector('#salida-km').value)
     if (!vehiculo || !km) { alert('Completá vehículo y km de salida'); return }
     const hora = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
-    await supabase.from('recorridos').update({ estado: 'en-ruta', hora_salida: hora, vehiculo, km_salida: km }).eq('id', activeRecorridoId)
+    const { error } = await supabase.from('recorridos').update({
+      estado: 'en-ruta', hora_salida: hora, vehiculo, km_salida: km
+    }).eq('id', activeRecorridoId)
+    if (error) { alert('Error: ' + error.message); return }
     modalSalida.classList.remove('open')
     await load()
   }
@@ -102,16 +103,57 @@ export async function renderDespacho(el, { supabase, currentUser }) {
   el.querySelector('#save-regreso').onclick = async () => {
     const km = parseInt(el.querySelector('#regreso-km').value)
     const r = currentRecorridos.find(x => x.id === activeRecorridoId)
-    if (!km || km <= r.km_salida) { alert('Ingresá un km de regreso válido'); return }
-    await supabase.from('recorridos').update({ estado: 'completado', km_regreso: km }).eq('id', activeRecorridoId)
+    if (!km || !r || km <= r.km_salida) { alert('Ingresá un km de regreso válido'); return }
+    const { error } = await supabase.from('recorridos').update({ estado: 'completado', km_regreso: km }).eq('id', activeRecorridoId)
+    if (error) { alert('Error: ' + error.message); return }
     modalRegreso.classList.remove('open')
     await load()
   }
 
+  el.querySelector('#despacho-content').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button')
+    if (!btn) return
+
+    if (btn.dataset.salida) {
+      activeRecorridoId = parseInt(btn.dataset.salida)
+      const r = currentRecorridos.find(x => x.id === activeRecorridoId)
+      if (!r) return
+      el.querySelector('#salida-title').textContent = 'Confirmar salida — ' + r.codigo
+      el.querySelector('#salida-vehiculo').value = ''
+      el.querySelector('#salida-km').value = ''
+      modalSalida.classList.add('open')
+      return
+    }
+
+    if (btn.dataset.regreso) {
+      activeRecorridoId = parseInt(btn.dataset.regreso)
+      const r = currentRecorridos.find(x => x.id === activeRecorridoId)
+      if (!r) return
+      el.querySelector('#regreso-resumen').innerHTML = `
+        <strong style="color:#ccc">${r.codigo}</strong><br>
+        Operario: ${r.operario} · Vehículo: ${r.vehiculo || '—'}<br>
+        Salida: ${r.hora_salida || '—'} · Km salida: ${r.km_salida || '—'}`
+      el.querySelector('#regreso-km').value = ''
+      el.querySelector('#km-diff-preview').innerHTML = ''
+      modalRegreso.classList.add('open')
+      return
+    }
+
+    if (btn.dataset.entregar) {
+      const hora = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+      const { error } = await supabase.from('recorrido_pedidos').update({
+        estado: 'entregado', hora_entrega: hora
+      }).eq('id', parseInt(btn.dataset.entregar))
+      if (error) { alert('Error: ' + error.message); return }
+      await load()
+    }
+  })
+
   async function load() {
     let query = supabase.from('recorridos').select(`*, recorrido_pedidos(*)`).order('created_at', { ascending: false })
     if (currentUser.rol === 'operario') query = query.eq('operario', currentUser.nombre)
-    const { data } = await query
+    const { data, error } = await query
+    if (error) { console.error(error); return }
     currentRecorridos = data || []
     el.querySelector('#despacho-sub').textContent = currentRecorridos.length + ' recorrido' + (currentRecorridos.length !== 1 ? 's' : '')
     const content = el.querySelector('#despacho-content')
@@ -128,17 +170,18 @@ export async function renderDespacho(el, { supabase, currentUser }) {
           <div>
             <div style="font-family:'DM Mono',monospace;font-size:14px;font-weight:600;color:#fff;margin-bottom:4px">${r.codigo}</div>
             <div style="font-size:12px;color:#444">${estBadge} · Operario: <strong style="color:#666">${r.operario}</strong> · ${ent}/${tot} entregas${r.vehiculo ? ' · ' + r.vehiculo : ''}</div>
-            <div style="font-size:11px;color:#333;margin-top:3px">Km salida: ${r.km_salida || '—'} · Km regreso: ${r.km_regreso || '—'}${r.km_salida && r.km_regreso ? ' · <span style="color:#52c452">' + (r.km_regreso - r.km_salida) + ' km</span>' : ''}${r.hora_salida ? ' · Salida: ' + r.hora_salida : ''}</div>
+            <div style="font-size:11px;color:#333;margin-top:3px">Km salida: <span style="font-family:'DM Mono',monospace">${r.km_salida || '—'}</span> · Km regreso: <span style="font-family:'DM Mono',monospace">${r.km_regreso || '—'}</span>${r.km_salida && r.km_regreso ? ' · <span style="color:#52c452;font-family:\'DM Mono\',monospace">' + (r.km_regreso - r.km_salida) + ' km</span>' : ''}${r.hora_salida ? ' · Salida: ' + r.hora_salida : ''}</div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             ${r.estado === 'pendiente' ? `<button class="btn-sm orange" data-salida="${r.id}"><i class="ti ti-truck-delivery"></i> Confirmar salida</button>` : ''}
-            ${r.estado === 'en-ruta' && ent === tot ? `<button class="btn-sm green" data-regreso="${r.id}"><i class="ti ti-home"></i> Confirmar regreso</button>` : ''}
+            ${r.estado === 'en-ruta' && ent === tot && tot > 0 ? `<button class="btn-sm green" data-regreso="${r.id}"><i class="ti ti-home"></i> Confirmar regreso</button>` : ''}
           </div>
         </div>
-        ${r.recorrido_pedidos.map(p => `
+        ${tot === 0 ? '<div style="color:#2a2a2a;font-size:12px;padding:8px 0">Sin pedidos en este recorrido</div>' :
+        r.recorrido_pedidos.map(p => `
           <div class="pedido-card ${p.estado === 'entregado' ? 'entregado' : ''}">
             <div class="pedido-card-header">
-              <div class="pedido-orden ${p.tipo}">${p.orden}</div>
+              <div class="pedido-orden ${p.tipo || 'pyb'}">${p.orden}</div>
               <div style="flex:1">
                 <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:2px">${p.cliente_nombre}</div>
                 <div style="font-size:11px;color:#444"><i class="ti ti-map-pin" style="font-size:10px"></i> ${p.direccion || '—'} · ${p.nota_pedido}${p.tipo === 'externo' ? ' · ' + (p.transporte_nombre || '') : ''}</div>
@@ -149,36 +192,6 @@ export async function renderDespacho(el, { supabase, currentUser }) {
           </div>`).join('')}
       </div>`
     }).join('')
-
-    content.querySelectorAll('[data-salida]').forEach(btn => {
-      btn.onclick = () => {
-        activeRecorridoId = parseInt(btn.dataset.salida)
-        const r = currentRecorridos.find(x => x.id === activeRecorridoId)
-        el.querySelector('#salida-title').textContent = 'Confirmar salida — ' + r.codigo
-        el.querySelector('#salida-vehiculo').value = ''
-        el.querySelector('#salida-km').value = ''
-        modalSalida.classList.add('open')
-      }
-    })
-
-    content.querySelectorAll('[data-regreso]').forEach(btn => {
-      btn.onclick = () => {
-        activeRecorridoId = parseInt(btn.dataset.regreso)
-        const r = currentRecorridos.find(x => x.id === activeRecorridoId)
-        el.querySelector('#regreso-resumen').innerHTML = `<strong style="color:#ccc">${r.codigo}</strong><br>Operario: ${r.operario} · Vehículo: ${r.vehiculo || '—'}<br>Salida: ${r.hora_salida || '—'} · Km salida: ${r.km_salida || '—'}`
-        el.querySelector('#regreso-km').value = ''
-        el.querySelector('#km-diff-preview').innerHTML = ''
-        modalRegreso.classList.add('open')
-      }
-    })
-
-    content.querySelectorAll('[data-entregar]').forEach(btn => {
-      btn.onclick = async () => {
-        const hora = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
-        await supabase.from('recorrido_pedidos').update({ estado: 'entregado', hora_entrega: hora }).eq('id', btn.dataset.entregar)
-        await load()
-      }
-    })
   }
 
   await load()
