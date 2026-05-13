@@ -1,3 +1,45 @@
+const ORS_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjIwOTM5ZWM0NzVhYzRmZjA5ZjQ1NWVlODk3OWIyMTk0IiwiaCI6Im11cm11cjY0In0='
+
+const DEPOSITO = { lat: -31.4135, lng: -64.1811, nombre: 'Depósito P&B' }
+
+async function geocodeAddress(address) {
+  try {
+    const url = `https://api.openrouteservice.org/geocode/search?api_key=${ORS_KEY}&text=${encodeURIComponent(address + ', Córdoba, Argentina')}&size=1`
+    const res = await fetch(url)
+    const data = await res.json()
+    if (data.features && data.features.length > 0) {
+      const [lng, lat] = data.features[0].geometry.coordinates
+      return { lat, lng }
+    }
+  } catch (e) { console.error('Geocode error:', e) }
+  return null
+}
+
+async function optimizeRoute(pedidos) {
+  try {
+    const jobs = pedidos.map((p, i) => ({
+      id: i + 1,
+      location: [p.coords.lng, p.coords.lat],
+      description: p.cliente
+    }))
+    const body = {
+      jobs,
+      vehicles: [{ id: 1, start: [DEPOSITO.lng, DEPOSITO.lat], end: [DEPOSITO.lng, DEPOSITO.lat] }]
+    }
+    const res = await fetch('https://api.openrouteservice.org/optimization', {
+      method: 'POST',
+      headers: { 'Authorization': ORS_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+    const data = await res.json()
+    if (data.routes && data.routes[0]) {
+      const steps = data.routes[0].steps.filter(s => s.type === 'job')
+      return steps.map(s => pedidos[s.job - 1])
+    }
+  } catch (e) { console.error('ORS optimize error:', e) }
+  return pedidos
+}
+
 export async function renderRecorridos(el, { supabase, currentUser }) {
   const canEdit = ['jefe','logistica'].includes(currentUser.rol)
   el.innerHTML = `
@@ -5,7 +47,16 @@ export async function renderRecorridos(el, { supabase, currentUser }) {
       <div class="page-title-group"><span class="page-title">Recorridos</span><span class="page-subtitle" id="rec-sub"></span></div>
       ${canEdit ? '<button class="btn-add" id="btn-new-rec"><i class="ti ti-plus"></i> Nuevo recorrido</button>' : ''}
     </div>
-    <div id="rec-list"><div class="loading">Cargando...</div></div>
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="lista">Recorridos del día</button>
+      <button class="tab-btn" data-tab="mapa">Mapa GPS en tiempo real</button>
+    </div>
+    <div class="tab-content active" id="tab-lista">
+      <div id="rec-list"><div class="loading">Cargando...</div></div>
+    </div>
+    <div class="tab-content" id="tab-mapa">
+      <div id="mapa-wrap"></div>
+    </div>
 
     <div class="modal-overlay" id="modal-new-rec">
       <div class="modal"><div class="modal-top-bar" style="background:#5aadee"></div>
@@ -13,7 +64,7 @@ export async function renderRecorridos(el, { supabase, currentUser }) {
         <div class="modal-body">
           <div style="background:#0d1a0d;border:1px solid #1a3a1a;padding:12px 16px;border-radius:2px;font-size:12px;color:#3a6a3a;margin-bottom:16px;display:flex;gap:10px;">
             <i class="ti ti-info-circle" style="color:#52c452;flex-shrink:0"></i>
-            <span>Solo pedidos <strong>habilitados</strong> con dirección cargada. Retira cliente se gestiona por separado.</span>
+            <span>Solo pedidos <strong>habilitados</strong> con dirección cargada. La ruta se optimiza automáticamente.</span>
           </div>
           <div class="form-row"><label class="form-label">Seleccionar pedidos</label>
             <div id="pedidos-disponibles" style="max-height:240px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;"></div>
@@ -21,13 +72,29 @@ export async function renderRecorridos(el, { supabase, currentUser }) {
           <div class="form-row"><label class="form-label">Asignar operario <span class="req">*</span></label>
             <select class="form-select" id="rec-operario"></select>
           </div>
+          <div id="ruta-preview" style="display:none;margin-top:16px;">
+            <div style="font-size:10px;letter-spacing:3px;color:#5aadee;text-transform:uppercase;margin-bottom:10px;"><i class="ti ti-route"></i> Ruta optimizada</div>
+            <div id="ruta-steps"></div>
+          </div>
         </div>
-        <div class="modal-footer"><button class="btn-cancel" id="cancel-new-rec">Cancelar</button><button class="btn-confirm" id="save-new-rec">Crear recorrido</button></div>
+        <div class="modal-footer">
+          <button class="btn-cancel" id="cancel-new-rec">Cancelar</button>
+          <button class="btn-confirm" id="optimizar-btn"><i class="ti ti-route"></i> Optimizar y crear</button>
+        </div>
       </div>
     </div>`
 
-  let selectedPedidos = []
+  el.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.onclick = () => {
+      el.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'))
+      el.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'))
+      btn.classList.add('active')
+      el.querySelector('#tab-' + btn.dataset.tab).classList.add('active')
+      if (btn.dataset.tab === 'mapa') buildMapa()
+    }
+  })
 
+  let selectedPedidos = []
   const modal = el.querySelector('#modal-new-rec')
   el.querySelector('#close-new-rec').onclick = () => modal.classList.remove('open')
   el.querySelector('#cancel-new-rec').onclick = () => modal.classList.remove('open')
@@ -66,18 +133,73 @@ export async function renderRecorridos(el, { supabase, currentUser }) {
         </div>
       </div>`
     }).join('')
-    list.querySelectorAll('[data-toggle]').forEach(header => {
-      header.onclick = () => document.getElementById('rbody-' + header.dataset.toggle).classList.toggle('open')
+    list.querySelectorAll('[data-toggle]').forEach(h => {
+      h.onclick = () => document.getElementById('rbody-' + h.dataset.toggle).classList.toggle('open')
     })
+  }
+
+  async function buildMapa() {
+    const wrap = el.querySelector('#mapa-wrap')
+    wrap.innerHTML = '<div class="loading">Cargando posiciones GPS...</div>'
+    const { data: recorridos } = await supabase.from('recorridos').select(`*, recorrido_pedidos(*)`).eq('estado', 'en-ruta')
+    const activos = recorridos || []
+    if (activos.length === 0) {
+      wrap.innerHTML = '<div class="empty-state" style="padding:60px">No hay vehículos en ruta ahora</div>'
+      return
+    }
+    const { data: posiciones } = await supabase.from('gps_positions').select('*').in('operario', activos.map(r => r.operario))
+    const posMap = {}
+    ;(posiciones || []).forEach(p => { posMap[p.operario] = p })
+    const colors = ['#a78bfa','#52c452','#d4a830','#5aadee','#ff6b2b']
+    wrap.innerHTML = `
+      <div style="background:#0a0f0a;border:1px solid #1a2a1a;border-radius:2px;height:260px;position:relative;overflow:hidden;margin-bottom:16px;">
+        <div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 30px,rgba(52,199,89,0.03) 30px,rgba(52,199,89,0.03) 31px),repeating-linear-gradient(90deg,transparent,transparent 30px,rgba(52,199,89,0.03) 30px,rgba(52,199,89,0.03) 31px);"></div>
+        <div style="position:absolute;top:10px;left:12px;font-size:10px;letter-spacing:2px;color:#1a3a1a;text-transform:uppercase;">GPS en tiempo real</div>
+        <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:10px;height:10px;background:#333;border:1px solid #555;border-radius:2px;" title="Depósito P&B"></div>
+        ${activos.map((r, i) => {
+          const pos = posMap[r.operario]
+          const color = colors[i % colors.length]
+          const x = pos ? Math.min(90, Math.max(10, 50 + (pos.lng - DEPOSITO.lng) * 200)) : 30 + i * 20
+          const y = pos ? Math.min(85, Math.max(10, 50 - (pos.lat - DEPOSITO.lat) * 200)) : 40 + i * 15
+          return `<div style="position:absolute;left:${x}%;top:${y}%;transform:translate(-50%,-50%);">
+            <div style="width:14px;height:14px;border-radius:50%;background:${color}33;border:2px solid ${color};display:flex;align-items:center;justify-content:center;">
+              <i class="ti ti-car" style="font-size:8px;color:${color}"></i>
+            </div>
+            <div style="font-size:9px;color:${color};text-align:center;white-space:nowrap;margin-top:2px">${r.operario}</div>
+          </div>`
+        }).join('')}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        ${activos.map((r, i) => {
+          const pos = posMap[r.operario]
+          const color = colors[i % colors.length]
+          const ent = r.recorrido_pedidos.filter(p => p.estado === 'entregado').length
+          const lastUpdate = pos ? new Date(pos.updated_at).toTimeString().slice(0,5) : null
+          return `<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:#111;border:1px solid #1e1e1e;border-radius:2px;">
+            <div style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></div>
+            <div style="flex:1">
+              <div style="font-size:13px;color:#ccc;font-weight:500">${r.operario} — ${r.vehiculo || '—'}</div>
+              <div style="font-size:11px;color:#444;margin-top:2px">${r.codigo} · ${ent}/${r.recorrido_pedidos.length} entregas${lastUpdate ? ' · GPS: ' + lastUpdate : ' · <span style="color:#555">Sin señal GPS</span>'}</div>
+            </div>
+          </div>`
+        }).join('')}
+      </div>
+      <div style="font-size:11px;color:#2a2a2a;margin-top:12px;text-align:center">El GPS se actualiza cada 30 segundos cuando el operario tiene la app abierta</div>`
   }
 
   if (canEdit) {
     el.querySelector('#btn-new-rec').onclick = async () => {
       selectedPedidos = []
+      el.querySelector('#ruta-preview').style.display = 'none'
+      const optimizarBtn = el.querySelector('#optimizar-btn')
+      optimizarBtn.innerHTML = '<i class="ti ti-route"></i> Optimizar y crear'
+      optimizarBtn.disabled = false
+
       const { data: enRuta } = await supabase.from('recorrido_pedidos').select('nota_pedido')
       const notasEnRuta = (enRuta || []).map(p => p.nota_pedido)
       const { data: pk } = await supabase.from('picking').select('id, nota_pedido, cliente_nombre, cliente_id').eq('estado', 'habilitado')
       const disponiblesPk = (pk || []).filter(p => !notasEnRuta.includes(p.nota_pedido))
+
       if (disponiblesPk.length === 0) {
         el.querySelector('#pedidos-disponibles').innerHTML = '<div style="color:#2a2a2a;font-size:12px;padding:10px">Sin pedidos habilitados disponibles</div>'
       } else {
@@ -128,6 +250,7 @@ export async function renderRecorridos(el, { supabase, currentUser }) {
           }
         })
       }
+
       const { data: profiles } = await supabase.from('profiles').select('nombre,rol').eq('activo', true).in('rol', ['jefe','logistica','operario'])
       const sel = el.querySelector('#rec-operario')
       sel.innerHTML = '<option value="">— seleccionar —</option>' + (profiles || []).map(p => `<option value="${p.nombre}">${p.nombre}</option>`).join('')
@@ -135,23 +258,76 @@ export async function renderRecorridos(el, { supabase, currentUser }) {
       modal.classList.add('open')
     }
 
-    el.querySelector('#save-new-rec').onclick = async () => {
+    let pedidosOrdenados = []
+
+    el.querySelector('#optimizar-btn').onclick = async () => {
+      const btn = el.querySelector('#optimizar-btn')
+      if (btn.dataset.step === 'confirmar') {
+        if (pedidosOrdenados.length === 0) return
+        const operario = el.querySelector('#rec-operario').value
+        if (!operario) { alert('Asigná un operario'); return }
+        btn.innerHTML = 'Creando...'
+        btn.disabled = true
+        const today = new Date().toISOString().split('T')[0].replace(/-/g, '')
+        const { data: existing } = await supabase.from('recorridos').select('id').like('codigo', `RPT-${today}-%`)
+        const num = String((existing?.length || 0) + 1).padStart(3, '0')
+        const codigo = `RPT-${today}-${num}`
+        const { data: rec, error: recError } = await supabase.from('recorridos').insert({ codigo, operario, estado: 'pendiente' }).select().single()
+        if (recError || !rec) { alert('Error: ' + (recError?.message || 'desconocido')); btn.disabled = false; return }
+        const pedidosInsert = pedidosOrdenados.map((p, i) => ({ recorrido_id: rec.id, nota_pedido: p.nota, cliente_nombre: p.cliente, direccion: p.dir || null, tipo: p.tipo, transporte_nombre: p.transporteNombre || null, orden: i + 1, estado: 'pendiente' }))
+        const { error: pedError } = await supabase.from('recorrido_pedidos').insert(pedidosInsert)
+        if (pedError) { alert('Error: ' + pedError.message); btn.disabled = false; return }
+        modal.classList.remove('open')
+        selectedPedidos = []
+        pedidosOrdenados = []
+        btn.dataset.step = ''
+        await load()
+        return
+      }
+
       if (selectedPedidos.length === 0) { alert('Seleccioná al menos un pedido'); return }
       const operario = el.querySelector('#rec-operario').value
       if (!operario) { alert('Asigná un operario'); return }
-      const today = new Date().toISOString().split('T')[0].replace(/-/g, '')
-      const { data: existing } = await supabase.from('recorridos').select('id').like('codigo', `RPT-${today}-%`)
-      const num = String((existing?.length || 0) + 1).padStart(3, '0')
-      const codigo = `RPT-${today}-${num}`
-      const { data: rec, error: recError } = await supabase.from('recorridos').insert({ codigo, operario, estado: 'pendiente' }).select().single()
-      if (recError || !rec) { alert('Error al crear recorrido: ' + (recError?.message || 'desconocido')); return }
-      const pedidosInsert = selectedPedidos.map((p, i) => ({ recorrido_id: rec.id, nota_pedido: p.nota, cliente_nombre: p.cliente, direccion: p.dir || null, tipo: p.tipo, transporte_nombre: p.transporteNombre || null, orden: i + 1, estado: 'pendiente' }))
-      const { error: pedError } = await supabase.from('recorrido_pedidos').insert(pedidosInsert)
-      if (pedError) { alert('Error al agregar pedidos: ' + pedError.message); return }
-      modal.classList.remove('open')
-      selectedPedidos = []
-      await load()
+
+      btn.innerHTML = '<i class="ti ti-loader"></i> Optimizando ruta...'
+      btn.disabled = true
+
+      const pedidosConCoords = await Promise.all(selectedPedidos.map(async p => {
+        const coords = await geocodeAddress(p.dir)
+        return { ...p, coords: coords || { lat: DEPOSITO.lat + Math.random()*0.01, lng: DEPOSITO.lng + Math.random()*0.01 } }
+      }))
+
+      pedidosOrdenados = pedidosConCoords.length > 1 ? await optimizeRoute(pedidosConCoords) : pedidosConCoords
+
+      el.querySelector('#ruta-preview').style.display = 'block'
+      el.querySelector('#ruta-steps').innerHTML = `
+        <div style="padding:8px 12px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:2px;margin-bottom:4px;font-size:12px;color:#333">🏭 Depósito P&B — Punto de partida</div>
+        ${pedidosOrdenados.map((p, i) => `
+          <div style="padding:8px 12px;background:#0d1f2d;border:1px solid #1a3a52;border-radius:2px;margin-bottom:4px;display:flex;align-items:center;gap:10px;">
+            <div style="width:20px;height:20px;border-radius:50%;background:#0d1f2d;border:1px solid #5aadee;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#5aadee;flex-shrink:0">${i+1}</div>
+            <div><div style="font-size:12px;color:#ccc">${p.cliente}</div><div style="font-size:11px;color:#444">${p.dir}</div></div>
+          </div>`).join('')}`
+
+      btn.innerHTML = '<i class="ti ti-check"></i> Confirmar recorrido'
+      btn.disabled = false
+      btn.dataset.step = 'confirmar'
     }
+  }
+
+  if (['operario','logistica'].includes(currentUser.rol)) {
+    async function updateGPS() {
+      if (!navigator.geolocation) return
+      navigator.geolocation.getCurrentPosition(async pos => {
+        await supabase.from('gps_positions').upsert({
+          operario: currentUser.nombre,
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'operario' })
+      }, () => {})
+    }
+    updateGPS()
+    setInterval(updateGPS, 30000)
   }
 
   await load()
