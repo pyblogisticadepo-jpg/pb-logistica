@@ -91,7 +91,7 @@ export async function renderDespacho(el, { supabase, currentUser }) {
     const vehiculo = el.querySelector('#salida-vehiculo').value
     const km = parseInt(el.querySelector('#salida-km').value)
     if (!vehiculo || !km) { alert('Completá vehículo y km de salida'); return }
-    const hora = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+    const hora = new Date().toTimeString().slice(0,5)
     const { error } = await supabase.from('recorridos').update({
       estado: 'en-ruta', hora_salida: hora, vehiculo, km_salida: km
     }).eq('id', activeRecorridoId)
@@ -140,7 +140,7 @@ export async function renderDespacho(el, { supabase, currentUser }) {
     }
 
     if (btn.dataset.entregar) {
-      const hora = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+      const hora = new Date().toTimeString().slice(0,5)
       const { error } = await supabase.from('recorrido_pedidos').update({
         estado: 'entregado', hora_entrega: hora
       }).eq('id', parseInt(btn.dataset.entregar))
