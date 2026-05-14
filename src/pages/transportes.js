@@ -11,7 +11,8 @@ export async function renderTransportes(el, { supabase, currentUser, isObserver 
       <input class="search-input" id="transp-search" placeholder="Buscar transporte...">
       <select class="filter-select" id="transp-filter">
         <option value="">Todos</option>
-        <option value="con">Con dirección</option>
+        <option value="reparto">Con reparto</option>
+        <option value="retira">Retira en depósito</option>
         <option value="sin">Sin dirección</option>
       </select>
     </div>
@@ -26,15 +27,21 @@ export async function renderTransportes(el, { supabase, currentUser, isObserver 
         <div class="modal-body">
           <div class="form-row"><label class="form-label">Nombre <span class="req">*</span></label><input class="form-input" id="t-nombre" placeholder="Ej: Transporte Rápido SA"></div>
           <div class="form-row">
-            <label class="form-label">Dirección <span class="req">*</span></label>
+            <label class="form-label">Dirección</label>
             <input class="form-input" id="t-direccion" placeholder="Dirección del depósito del transporte">
-            <div class="form-hint">Requerida para incluir en recorridos</div>
+            <div class="form-hint">Requerida para incluir en recorridos de reparto</div>
           </div>
           <div class="form-row-2">
             <div><label class="form-label">Teléfono</label><input class="form-input" id="t-telefono" placeholder="351-xxx-xxxx"></div>
             <div><label class="form-label">Contacto</label><input class="form-input" id="t-contacto" placeholder="Nombre de contacto"></div>
           </div>
           <div class="form-row"><label class="form-label">Observaciones</label><textarea class="form-textarea" id="t-obs" placeholder="Horarios, aclaraciones..." style="min-height:60px;resize:none"></textarea></div>
+          <div class="form-row">
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;color:#aaa;">
+              <input type="checkbox" id="t-retira" style="accent-color:#d4a830;width:16px;height:16px;">
+              <span>Retira en depósito — <span style="color:#555;font-size:12px">no entra en recorridos, viene a buscar al depósito P&B</span></span>
+            </label>
+          </div>
         </div>
         <div class="modal-footer">
           <button class="btn-cancel" id="cancel-transp">Cancelar</button>
@@ -61,29 +68,53 @@ export async function renderTransportes(el, { supabase, currentUser, isObserver 
     el.querySelector('#transp-count').textContent = lista.length + ' registros'
     const div = el.querySelector('#transp-list')
     if (lista.length === 0) { div.innerHTML = '<div class="empty-state">Sin transportes registrados</div>'; return }
-    div.innerHTML = lista.map(t => `
-      <div style="background:#111;border:1px solid ${t.direccion ? '#1e1e1e' : '#2a1a00'};padding:16px 18px;margin-bottom:10px;border-radius:2px;display:flex;align-items:flex-start;gap:14px;">
-        <div style="width:36px;height:36px;background:#1a1a1a;border:1px solid #222;border-radius:2px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px">
-          <i class="ti ti-truck" style="font-size:18px;color:#444"></i>
-        </div>
-        <div style="flex:1">
-          <div style="font-size:14px;color:#ccc;font-weight:600;margin-bottom:4px">${t.nombre}</div>
-          <div style="font-size:12px;color:#444;margin-bottom:2px">
-            <i class="ti ti-map-pin" style="font-size:11px"></i>
-            ${t.direccion || '<span style="color:#e05555">Sin dirección — no puede incluirse en recorridos</span>'}
-          </div>
-          ${t.telefono ? `<div style="font-size:12px;color:#333"><i class="ti ti-phone" style="font-size:11px"></i> ${t.telefono}${t.contacto ? ' · ' + t.contacto : ''}</div>` : ''}
-          ${t.observaciones ? `<div style="font-size:11px;color:#2a2a2a;margin-top:6px;border-top:1px solid #1a1a1a;padding-top:6px">${t.observaciones}</div>` : ''}
-        </div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;flex-shrink:0">
-          ${t.direccion ? '<span class="badge badge-ok" style="font-size:9px">Hab. reparto</span>' : '<span class="badge badge-warn" style="font-size:9px">Sin dirección</span>'}
-          ${canEdit ? `<button class="btn-sm primary" data-edit="${t.id}"><i class="ti ti-pencil"></i> Editar</button>` : ''}
-        </div>
-      </div>`).join('')
 
+    // Separar por tipo
+    const retiran = lista.filter(t => t.retira_deposito)
+    const reparten = lista.filter(t => !t.retira_deposito)
+
+    let html = ''
+
+    if (retiran.length > 0) {
+      html += `<div class="section-label">Retiran en depósito</div>`
+      html += retiran.map(t => renderCard(t)).join('')
+    }
+
+    if (reparten.length > 0) {
+      html += `<div class="section-label" style="margin-top:${retiran.length > 0 ? '24px' : '0'}">Reparto externo</div>`
+      html += reparten.map(t => renderCard(t)).join('')
+    }
+
+    div.innerHTML = html
     div.querySelectorAll('[data-edit]').forEach(btn => {
       btn.onclick = () => openEdit(parseInt(btn.dataset.edit))
     })
+  }
+
+  function renderCard(t) {
+    const esRetira = t.retira_deposito
+    const habilitado = esRetira ? true : !!t.direccion
+    const badge = esRetira
+      ? '<span class="badge badge-retira" style="font-size:9px">Retira en depósito</span>'
+      : t.direccion
+        ? '<span class="badge badge-ok" style="font-size:9px">Hab. reparto</span>'
+        : '<span class="badge badge-warn" style="font-size:9px">Sin dirección</span>'
+
+    return `<div style="background:#111;border:1px solid ${esRetira ? '#1a3636' : t.direccion ? '#1e1e1e' : '#2a1a00'};padding:16px 18px;margin-bottom:10px;border-radius:2px;display:flex;align-items:flex-start;gap:14px;">
+      <div style="width:36px;height:36px;background:#1a1a1a;border:1px solid #222;border-radius:2px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px">
+        <i class="ti ti-truck" style="font-size:18px;color:${esRetira ? '#4dd4d4' : '#444'}"></i>
+      </div>
+      <div style="flex:1">
+        <div style="font-size:14px;color:#ccc;font-weight:600;margin-bottom:4px">${t.nombre}</div>
+        ${t.direccion ? `<div style="font-size:12px;color:#444;margin-bottom:2px"><i class="ti ti-map-pin" style="font-size:11px"></i> ${t.direccion}</div>` : ''}
+        ${t.telefono ? `<div style="font-size:12px;color:#333"><i class="ti ti-phone" style="font-size:11px"></i> ${t.telefono}${t.contacto ? ' · ' + t.contacto : ''}</div>` : ''}
+        ${t.observaciones ? `<div style="font-size:11px;color:#2a2a2a;margin-top:6px;border-top:1px solid #1a1a1a;padding-top:6px">${t.observaciones}</div>` : ''}
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;flex-shrink:0">
+        ${badge}
+        ${canEdit ? `<button class="btn-sm primary" data-edit="${t.id}"><i class="ti ti-pencil"></i> Editar</button>` : ''}
+      </div>
+    </div>`
   }
 
   function openEdit(id) {
@@ -96,6 +127,7 @@ export async function renderTransportes(el, { supabase, currentUser, isObserver 
     el.querySelector('#t-telefono').value = t.telefono || ''
     el.querySelector('#t-contacto').value = t.contacto || ''
     el.querySelector('#t-obs').value = t.observaciones || ''
+    el.querySelector('#t-retira').checked = t.retira_deposito || false
     modal.classList.add('open')
   }
 
@@ -104,20 +136,22 @@ export async function renderTransportes(el, { supabase, currentUser, isObserver 
       editingId = null
       el.querySelector('#modal-transp-title').textContent = 'Nuevo transporte'
       ;['t-nombre','t-direccion','t-telefono','t-contacto','t-obs'].forEach(id => { el.querySelector('#' + id).value = '' })
+      el.querySelector('#t-retira').checked = false
       modal.classList.add('open')
     }
   }
 
   el.querySelector('#save-transp').onclick = async () => {
     const nombre = el.querySelector('#t-nombre').value.trim()
-    const direccion = el.querySelector('#t-direccion').value.trim()
     if (!nombre) { alert('El nombre es obligatorio'); return }
+    const retira = el.querySelector('#t-retira').checked
     const payload = {
       nombre,
-      direccion: direccion || null,
+      direccion: el.querySelector('#t-direccion').value.trim() || null,
       telefono: el.querySelector('#t-telefono').value.trim() || null,
       contacto: el.querySelector('#t-contacto').value.trim() || null,
       observaciones: el.querySelector('#t-obs').value.trim() || null,
+      retira_deposito: retira,
       activo: true
     }
     if (editingId) {
@@ -136,10 +170,14 @@ export async function renderTransportes(el, { supabase, currentUser, isObserver 
   function filter() {
     const q = el.querySelector('#transp-search').value.toLowerCase()
     const f = el.querySelector('#transp-filter').value
-    renderList(allTransportes.filter(t =>
-      (t.nombre.toLowerCase().includes(q) || (t.direccion || '').toLowerCase().includes(q)) &&
-      (f === '' ? true : f === 'con' ? !!t.direccion : !t.direccion)
-    ))
+    renderList(allTransportes.filter(t => {
+      const matchQ = t.nombre.toLowerCase().includes(q) || (t.direccion || '').toLowerCase().includes(q)
+      const matchF = f === '' ? true :
+        f === 'retira' ? t.retira_deposito :
+        f === 'reparto' ? (!t.retira_deposito && !!t.direccion) :
+        (!t.direccion && !t.retira_deposito)
+      return matchQ && matchF
+    }))
   }
 
   await load()
