@@ -103,7 +103,7 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
   function getTransporteLabel(c) {
     if (c.transporte_tipo === 'pyb') return 'Entrega P&B'
     if (c.transporte_tipo === 'retira') return 'Retira cliente'
-    return 'c._transporte_nombre || 'Transp. externo''
+    return c._transporte_nombre || 'Transp. externo'
   }
 
   function renderTable(lista) {
