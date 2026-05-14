@@ -77,6 +77,15 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
     await loadTransportes()
     const { data } = await supabase.from('clientes').select('*').order('nombre')
     allClientes = data || []
+    // Enrich with transporte names
+    const transpIds = [...new Set(allClientes.map(c => c.transporte_id).filter(Boolean))]
+    if (transpIds.length > 0) {
+      const { data: transp } = await supabase.from('transportes').select('id, nombre').in('id', transpIds)
+      const transpMap = {}
+      ;(transp || []).forEach(t => { transpMap[t.id] = t.nombre })
+      allClientes = allClientes.map(c => ({ ...c, _transporte_nombre: transpMap[c.transporte_id] || null }))
+    }
+    allClientes = data || []
     renderTable(allClientes)
     checkIncompletos(allClientes)
   }
@@ -94,7 +103,7 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
   function getTransporteLabel(c) {
     if (c.transporte_tipo === 'pyb') return 'Entrega P&B'
     if (c.transporte_tipo === 'retira') return 'Retira cliente'
-    return 'Transp. externo'
+    return 'c._transporte_nombre || 'Transp. externo''
   }
 
   function renderTable(lista) {
