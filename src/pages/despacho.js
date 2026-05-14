@@ -29,7 +29,6 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
           <div class="form-row">
             <label class="form-label">Km de salida <span class="req">*</span></label>
             <input class="form-input" id="salida-km" type="number" placeholder="Ej: 45820">
-            <div class="form-hint">Kilometraje actual del vehículo al salir</div>
           </div>
         </div>
         <div class="modal-footer">
@@ -50,7 +49,6 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
           <div class="form-row">
             <label class="form-label">Km de regreso <span class="req">*</span></label>
             <input class="form-input" id="regreso-km" type="number" placeholder="Ej: 45951">
-            <div class="form-hint">Kilometraje del vehículo al regresar</div>
           </div>
           <div id="km-diff-preview" style="font-size:12px;margin-top:8px;"></div>
         </div>
@@ -59,11 +57,46 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
           <button class="btn-confirm" id="save-regreso"><i class="ti ti-home"></i> Confirmar regreso</button>
         </div>
       </div>
+    </div>
+
+    <div class="modal-overlay" id="modal-no-entregado">
+      <div class="modal"><div class="modal-top-bar" style="background:#e05555"></div>
+        <div class="modal-header">
+          <span class="modal-title">No se pudo entregar</span>
+          <button class="modal-close" id="close-no-entregado"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div style="background:#1f0d0d;border:1px solid #3a1a1a;padding:12px 16px;border-radius:2px;font-size:12px;color:#8a3a3a;margin-bottom:20px;">
+            El pedido volverá a estado <strong>habilitado</strong> y quedará disponible para asignar a un nuevo recorrido.
+          </div>
+          <div class="form-row">
+            <label class="form-label">Motivo <span class="req">*</span></label>
+            <select class="form-select" id="no-entregado-motivo">
+              <option value="">— seleccionar —</option>
+              <option value="Cliente ausente">Cliente ausente</option>
+              <option value="Local cerrado">Local cerrado</option>
+              <option value="Rechazó el pedido">Rechazó el pedido</option>
+              <option value="Dirección incorrecta">Dirección incorrecta</option>
+              <option value="Otro">Otro</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label class="form-label">Observaciones</label>
+            <textarea class="form-textarea" id="no-entregado-obs" placeholder="Detalle adicional..." style="min-height:60px;resize:none"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-cancel" id="cancel-no-entregado">Cancelar</button>
+          <button class="btn-confirm" style="background:#e05555" id="save-no-entregado"><i class="ti ti-arrow-back"></i> Registrar y devolver</button>
+        </div>
+      </div>
     </div>`
 
   const modalSalida = el.querySelector('#modal-salida')
   const modalRegreso = el.querySelector('#modal-regreso')
+  const modalNoEntregado = el.querySelector('#modal-no-entregado')
   let activeRecorridoId = null
+  let activePedidoId = null
   let currentRecorridos = []
 
   ;['close-salida','cancel-salida'].forEach(id => {
@@ -72,8 +105,12 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
   ;['close-regreso','cancel-regreso'].forEach(id => {
     el.querySelector('#' + id).onclick = () => modalRegreso.classList.remove('open')
   })
+  ;['close-no-entregado','cancel-no-entregado'].forEach(id => {
+    el.querySelector('#' + id).onclick = () => modalNoEntregado.classList.remove('open')
+  })
   modalSalida.onclick = (e) => { if (e.target === modalSalida) modalSalida.classList.remove('open') }
   modalRegreso.onclick = (e) => { if (e.target === modalRegreso) modalRegreso.classList.remove('open') }
+  modalNoEntregado.onclick = (e) => { if (e.target === modalNoEntregado) modalNoEntregado.classList.remove('open') }
 
   el.querySelector('#regreso-km').oninput = () => {
     const km = parseInt(el.querySelector('#regreso-km').value)
@@ -110,8 +147,23 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     await load()
   }
 
+  el.querySelector('#save-no-entregado').onclick = async () => {
+    const motivo = el.querySelector('#no-entregado-motivo').value
+    if (!motivo) { alert('Seleccioná un motivo'); return }
+    const obs = el.querySelector('#no-entregado-obs').value.trim()
+    // Sacar el pedido del recorrido (marcarlo como no entregado con observaciones)
+    await supabase.from('recorrido_pedidos').update({
+      estado: 'pendiente',
+      observaciones: motivo + (obs ? ': ' + obs : '')
+    }).eq('id', activePedidoId)
+    // El picking ya está en habilitado, no necesita cambio de estado
+    modalNoEntregado.classList.remove('open')
+    await load()
+  }
+
+  // Event delegation — solo botones, no toda la tarjeta
   el.querySelector('#despacho-content').addEventListener('click', async (e) => {
-    const btn = e.target.closest('button')
+    const btn = e.target.closest('button[data-salida], button[data-regreso], button[data-entregar], button[data-no-entregar], button[data-marcar-retiro]')
     if (!btn) return
 
     if (btn.dataset.salida) {
@@ -149,6 +201,14 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       return
     }
 
+    if (btn.dataset.noEntregar) {
+      activePedidoId = parseInt(btn.dataset.noEntregar)
+      el.querySelector('#no-entregado-motivo').value = ''
+      el.querySelector('#no-entregado-obs').value = ''
+      modalNoEntregado.classList.add('open')
+      return
+    }
+
     if (btn.dataset.marcarRetiro) {
       const pickingId = parseInt(btn.dataset.marcarRetiro)
       const hora = new Date().toTimeString().slice(0,5)
@@ -180,7 +240,6 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       if (notasEnRecorrido.includes(p.nota_pedido)) return false
       const tipo = p.clientes?.transporte_tipo
       if (tipo === 'retira') return true
-    
       return false
     })
 
@@ -223,8 +282,14 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
               <div style="flex:1">
                 <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:2px">${p.cliente_nombre}</div>
                 <div style="font-size:11px;color:#444"><i class="ti ti-map-pin" style="font-size:10px"></i> ${p.direccion || '—'} · ${p.nota_pedido}${p.tipo === 'externo' ? ' · ' + (p.transporte_nombre || '') : ''}</div>
+                ${p.observaciones ? `<div style="font-size:11px;color:#e05555;margin-top:3px"><i class="ti ti-alert-circle" style="font-size:10px"></i> ${p.observaciones}</div>` : ''}
               </div>
-              <div>${!isObserver && p.estado === 'pendiente' && r.estado === 'en-ruta' ? `<button class="btn-sm green" data-entregar="${p.id}"><i class="ti ti-check"></i> Entregado</button>` : p.estado === 'entregado' ? `<span class="badge badge-ok" style="font-size:9px">✓ ${p.hora_entrega || ''}</span>` : ''}</div>
+              <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
+                ${!isObserver && p.estado === 'pendiente' && r.estado === 'en-ruta' ? `
+                  <button class="btn-sm green" data-entregar="${p.id}"><i class="ti ti-check"></i> Entregado</button>
+                  <button class="btn-sm" style="border-color:#3a1a1a;color:#e05555" data-no-entregar="${p.id}"><i class="ti ti-x"></i> No entregado</button>
+                ` : p.estado === 'entregado' ? `<span class="badge badge-ok" style="font-size:9px">✓ ${p.hora_entrega || ''}</span>` : ''}
+              </div>
             </div>
             ${p.estado === 'entregado' ? `<div class="pedido-entregado-info"><span style="color:#52c452;font-family:'DM Mono',monospace;font-size:11px"><i class="ti ti-clock" style="font-size:10px"></i> Entregado ${p.hora_entrega || ''}</span></div>` : ''}
           </div>`).join('')}
