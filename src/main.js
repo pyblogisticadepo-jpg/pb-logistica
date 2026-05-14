@@ -31,7 +31,7 @@ const MODULES = [
   { id: 'clientes',      label: 'Clientes',        icon: 'ti-building-store',   roles: ['jefe','logistica','vendedor','observador'],            section: 'Operaciones' },
   { id: 'transportes',   label: 'Transportes',     icon: 'ti-truck',            roles: ['jefe','logistica','operario','observador'],            section: 'Operaciones' },
   { id: 'picking',       label: 'Picking',         icon: 'ti-package',          roles: ['jefe','logistica','observador'],                       section: 'Operaciones' },
-  { id: 'despacho',      label: 'Despacho',        icon: 'ti-truck-delivery',   roles: ['jefe','logistica','operario','observador'],            section: 'Operaciones' },
+  { id: 'despacho',      label: 'Despacho',        icon: 'ti-truck-delivery',   roles: ['jefe','logistica','operario','vendedor','observador'],            section: 'Operaciones' },
   { id: 'recorridos',    label: 'Recorridos',      icon: 'ti-route',            roles: ['jefe','logistica','operario','observador'],            section: 'Operaciones' },
   { id: 'vehiculos',     label: 'Vehículos',       icon: 'ti-car',              roles: ['jefe','logistica','operario','vendedor','observador'], section: 'Operaciones' },
   { id: 'recepcion',     label: 'Recepción',       icon: 'ti-forklift',         roles: ['jefe','logistica','operario','observador'],            section: 'Depósito' },
