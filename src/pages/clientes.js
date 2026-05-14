@@ -1,10 +1,12 @@
-export async function renderClientes(el, { supabase, currentUser }) {
+export async function renderClientes(el, { supabase, currentUser, isObserver }) {
   const canEdit = ['jefe','logistica','vendedor'].includes(currentUser.rol)
+
   el.innerHTML = `
     <div class="page-header">
       <div class="page-title-group"><span class="page-title">Clientes</span><span class="page-subtitle" id="clientes-count"></span></div>
       ${canEdit ? '<button class="btn-add" id="btn-new-client"><i class="ti ti-plus"></i> Nuevo cliente</button>' : ''}
     </div>
+    ${isObserver ? '<div class="observer-badge"><i class="ti ti-eye"></i> Modo observador — solo lectura</div>' : ''}
     <div id="clientes-alert"></div>
     <div class="search-bar">
       <input class="search-input" id="client-search" placeholder="Buscar cliente...">
@@ -21,13 +23,14 @@ export async function renderClientes(el, { supabase, currentUser }) {
         <div class="modal-header"><span class="modal-title" id="modal-client-title">Nuevo cliente</span><button class="modal-close" id="close-client-modal"><i class="ti ti-x"></i></button></div>
         <div class="modal-body">
           <div class="form-row"><label class="form-label">Nombre <span class="req">*</span></label><input class="form-input" id="c-nombre" placeholder="Nombre del cliente"></div>
-          <div class="form-row"><label class="form-label">Dirección</label><input class="form-input" id="c-dir" placeholder="Dirección de entrega"><div class="form-hint">Requerida para habilitar reparto</div></div>
+          <div class="form-row"><label class="form-label">Dirección</label><input class="form-input" id="c-dir" placeholder="Dirección de entrega"><div class="form-hint">Requerida para habilitar reparto en Entrega P&B</div></div>
           <div class="form-row-2">
             <div><label class="form-label">Horario</label><input class="form-input" id="c-horario" placeholder="Lun–Vie 8–17hs"></div>
             <div><label class="form-label">Teléfono</label><input class="form-input" id="c-tel" placeholder="351-xxx-xxxx"></div>
           </div>
           <div class="form-row"><label class="form-label">Aclaraciones</label><textarea class="form-textarea" id="c-aclar" placeholder="Ej: Entrar por Italia..."></textarea></div>
-          <div class="form-row"><label class="form-label">Transporte habitual</label>
+          <div class="form-row">
+            <label class="form-label">Transporte habitual</label>
             <select class="form-select" id="c-transporte-tipo">
               <option value="pyb">Entrega P&B</option>
               <option value="retira">Retira cliente</option>
@@ -35,8 +38,9 @@ export async function renderClientes(el, { supabase, currentUser }) {
             </select>
           </div>
           <div id="c-transporte-ext-wrap" style="display:none" class="form-row">
-            <label class="form-label">Transporte externo</label>
+            <label class="form-label">Seleccionar transporte</label>
             <select class="form-select" id="c-transporte-id"></select>
+            <div class="form-hint">Si el transporte no está en la lista, crealo primero en el módulo Transportes</div>
           </div>
         </div>
         <div class="modal-footer"><button class="btn-cancel" id="cancel-client-modal">Cancelar</button><button class="btn-confirm" id="save-client-btn">Guardar</button></div>
@@ -49,6 +53,7 @@ export async function renderClientes(el, { supabase, currentUser }) {
 
   const modal = el.querySelector('#modal-client')
   const tipoSel = el.querySelector('#c-transporte-tipo')
+
   tipoSel.onchange = () => {
     el.querySelector('#c-transporte-ext-wrap').style.display = tipoSel.value === 'externo' ? 'block' : 'none'
   }
@@ -58,28 +63,38 @@ export async function renderClientes(el, { supabase, currentUser }) {
   modal.onclick = (e) => { if (e.target === modal) modal.classList.remove('open') }
 
   async function loadTransportes() {
-    const { data } = await supabase.from('transportes').select('*').eq('activo', true)
+    const { data } = await supabase.from('transportes').select('*').eq('activo', true).order('nombre')
     transportes = data || []
     const sel = el.querySelector('#c-transporte-id')
-    sel.innerHTML = transportes.map(t => `<option value="${t.id}">${t.nombre}</option>`).join('')
+    if (transportes.length === 0) {
+      sel.innerHTML = '<option value="">— Sin transportes cargados —</option>'
+    } else {
+      sel.innerHTML = transportes.map(t => `<option value="${t.id}">${t.nombre}${t.direccion ? '' : ' ⚠️ sin dirección'}</option>`).join('')
+    }
   }
 
   async function load() {
     await loadTransportes()
-    const { data } = await supabase.from('clientes').select('*').order('nombre')
+    const { data } = await supabase.from('clientes').select('*, transportes(nombre)').order('nombre')
     allClientes = data || []
     renderTable(allClientes)
     checkIncompletos(allClientes)
   }
 
   function checkIncompletos(lista) {
-    const sin = lista.filter(c => !c.direccion)
+    const sin = lista.filter(c => !c.direccion && c.transporte_tipo === 'pyb')
     const alertDiv = el.querySelector('#clientes-alert')
     if (sin.length === 0) { alertDiv.innerHTML = ''; return }
     alertDiv.innerHTML = `<div style="background:#1a1500;border:1px solid #2a2000;padding:12px 16px;border-radius:2px;font-size:12px;color:#6a5a00;margin-bottom:16px;display:flex;align-items:center;gap:10px;">
       <i class="ti ti-alert-circle" style="color:#d4a830"></i>
-      <span><strong>${sin.length} cliente${sin.length > 1 ? 's' : ''} sin dirección:</strong> ${sin.map(c => c.nombre).join(', ')} — no pueden asignarse a reparto.</span>
+      <span><strong>${sin.length} cliente${sin.length > 1 ? 's' : ''} sin dirección:</strong> ${sin.map(c => c.nombre).join(', ')} — no pueden asignarse a reparto P&B.</span>
     </div>`
+  }
+
+  function getTransporteLabel(c) {
+    if (c.transporte_tipo === 'pyb') return 'Entrega P&B'
+    if (c.transporte_tipo === 'retira') return 'Retira cliente'
+    return c.transportes?.nombre || 'Transp. externo'
   }
 
   function renderTable(lista) {
@@ -88,14 +103,17 @@ export async function renderClientes(el, { supabase, currentUser }) {
     if (lista.length === 0) { wrap.innerHTML = '<div class="empty-state">Sin clientes</div>'; return }
     wrap.innerHTML = `<table class="data-table">
       <thead><tr><th>Cliente</th><th>Dirección</th><th>Transporte habitual</th><th>Hab. reparto</th>${canEdit ? '<th></th>' : ''}</tr></thead>
-      <tbody>${lista.map(c => `
-        <tr>
+      <tbody>${lista.map(c => {
+        const habilitado = c.transporte_tipo === 'retira' ? true :
+          c.transporte_tipo === 'pyb' ? !!c.direccion :
+          !!c.transportes?.nombre
+        return `<tr>
           <td style="color:#ccc;font-weight:500">${c.nombre}</td>
           <td>${c.direccion || '<span style="color:#2a2a2a;font-style:italic">Sin cargar</span>'}</td>
-          <td style="color:#555;font-size:12px">${c.transporte_tipo === 'pyb' ? 'Entrega P&B' : c.transporte_tipo === 'retira' ? 'Retira cliente' : 'Transp. externo'}</td>
-          <td>${c.direccion ? '<span class="badge badge-ok">Habilitado</span>' : '<span class="badge badge-warn">Sin dirección</span>'}</td>
+          <td style="color:#666;font-size:12px">${getTransporteLabel(c)}</td>
+          <td>${habilitado ? '<span class="badge badge-ok">Habilitado</span>' : '<span class="badge badge-warn">Sin dirección</span>'}</td>
           ${canEdit ? `<td><button class="btn-sm" data-edit="${c.id}"><i class="ti ti-pencil"></i> Editar</button></td>` : ''}
-        </tr>`).join('')}
+        </tr>`}).join('')}
       </tbody></table>`
 
     wrap.querySelectorAll('[data-edit]').forEach(btn => {
@@ -123,6 +141,8 @@ export async function renderClientes(el, { supabase, currentUser }) {
     const nombre = el.querySelector('#c-nombre').value.trim()
     if (!nombre) { alert('El nombre es obligatorio'); return }
     const tipo = tipoSel.value
+    const transporteId = tipo === 'externo' ? parseInt(el.querySelector('#c-transporte-id').value) : null
+    if (tipo === 'externo' && !transporteId) { alert('Seleccioná un transporte externo'); return }
     const payload = {
       nombre,
       direccion: el.querySelector('#c-dir').value.trim() || null,
@@ -130,7 +150,7 @@ export async function renderClientes(el, { supabase, currentUser }) {
       telefono: el.querySelector('#c-tel').value.trim() || null,
       aclaraciones: el.querySelector('#c-aclar').value.trim() || null,
       transporte_tipo: tipo,
-      transporte_id: tipo === 'externo' ? parseInt(el.querySelector('#c-transporte-id').value) : null,
+      transporte_id: transporteId,
       updated_at: new Date().toISOString()
     }
     if (editingId) {
