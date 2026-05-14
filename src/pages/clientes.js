@@ -75,7 +75,7 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
 
   async function load() {
     await loadTransportes()
-    const { data } = await supabase.from('clientes').select('*, transportes(nombre)').order('nombre')
+    const { data } = await supabase.from('clientes').select('*').order('nombre')
     allClientes = data || []
     renderTable(allClientes)
     checkIncompletos(allClientes)
@@ -94,7 +94,7 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
   function getTransporteLabel(c) {
     if (c.transporte_tipo === 'pyb') return 'Entrega P&B'
     if (c.transporte_tipo === 'retira') return 'Retira cliente'
-    return c.transportes?.nombre || 'Transp. externo'
+    return 'Transp. externo'
   }
 
   function renderTable(lista) {
