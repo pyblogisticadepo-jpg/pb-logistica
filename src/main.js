@@ -210,7 +210,7 @@ export function showPage(pageId) {
     case 'clientes':      renderClientes(pageEl, ctx); break
     case 'transportes':   renderTransportes(pageEl, ctx); break
     case 'picking':       renderPicking(pageEl, ctx); break
-    case 'despacho':      renderDespacho(pageEl, ctx); break
+    case 'despacho':      renderDespacho(pageEl, { ...ctx, isObserver: ctx.isObserver || ctx.currentUser.rol === 'vendedor' }); break
     case 'recorridos':    renderRecorridos(pageEl, ctx); break
     case 'vehiculos':     renderVehiculos(pageEl, ctx); break
     case 'recepcion':     renderRecepcion(pageEl, ctx); break
