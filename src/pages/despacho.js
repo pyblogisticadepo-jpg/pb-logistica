@@ -1,4 +1,5 @@
 export async function renderDespacho(el, { supabase, currentUser, isObserver }) {
+  const canAct = canAct && currentUser.rol !== 'vendedor'
   el.innerHTML = `
     <div class="page-header">
       <div class="page-title-group"><span class="page-title">Despacho</span><span class="page-subtitle" id="despacho-sub"></span></div>
@@ -270,8 +271,8 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
             <div style="font-size:11px;color:#333;margin-top:3px">Km salida: <span style="font-family:'DM Mono',monospace">${r.km_salida || '—'}</span> · Km regreso: <span style="font-family:'DM Mono',monospace">${r.km_regreso || '—'}</span>${r.km_salida && r.km_regreso ? ' · <span style="color:#52c452;font-family:\'DM Mono\',monospace">' + (r.km_regreso - r.km_salida) + ' km</span>' : ''}${r.hora_salida ? ' · Salida: ' + r.hora_salida : ''}</div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
-            ${!isObserver && r.estado === 'pendiente' ? `<button class="btn-sm orange" data-salida="${r.id}"><i class="ti ti-truck-delivery"></i> Confirmar salida</button>` : ''}
-            ${!isObserver && r.estado === 'en-ruta' && ent === tot && tot > 0 ? `<button class="btn-sm green" data-regreso="${r.id}"><i class="ti ti-home"></i> Confirmar regreso</button>` : ''}
+            ${canAct && r.estado === 'pendiente' ? `<button class="btn-sm orange" data-salida="${r.id}"><i class="ti ti-truck-delivery"></i> Confirmar salida</button>` : ''}
+            ${canAct && r.estado === 'en-ruta' && ent === tot && tot > 0 ? `<button class="btn-sm green" data-regreso="${r.id}"><i class="ti ti-home"></i> Confirmar regreso</button>` : ''}
           </div>
         </div>
         ${tot === 0 ? '<div style="color:#2a2a2a;font-size:12px;padding:8px 0">Sin pedidos en este recorrido</div>' :
@@ -285,7 +286,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
                 ${p.observaciones ? `<div style="font-size:11px;color:#e05555;margin-top:3px"><i class="ti ti-alert-circle" style="font-size:10px"></i> ${p.observaciones}</div>` : ''}
               </div>
               <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
-                ${!isObserver && p.estado === 'pendiente' && r.estado === 'en-ruta' ? `
+                ${canAct && p.estado === 'pendiente' && r.estado === 'en-ruta' ? `
                   <button class="btn-sm green" data-entregar="${p.id}"><i class="ti ti-check"></i> Entregado</button>
                   <button class="btn-sm" style="border-color:#3a1a1a;color:#e05555" data-no-entregar="${p.id}"><i class="ti ti-x"></i> No entregado</button>
                 ` : p.estado === 'entregado' ? `<span class="badge badge-ok" style="font-size:9px">✓ ${p.hora_entrega || ''}</span>` : ''}
@@ -309,7 +310,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
             <div style="font-size:13px;color:#ccc;font-weight:500">${p.cliente_nombre} <span style="font-size:10px;color:${color};margin-left:6px">${label}</span></div>
             <div style="font-size:11px;color:#444;margin-top:2px">${p.nota_pedido} · Doc: ${p.documentacion === 'fac_remito' ? 'Fac. y Remito' : p.documentacion === 'fac_etiqueta' ? 'Fac. y Etiqueta' : p.documentacion || '—'}</div>
           </div>
-          ${!isObserver ? `<button class="btn-sm green" data-marcar-retiro="${p.id}"><i class="ti ti-check"></i> Marcar retirado</button>` : ''}
+          ${canAct ? `<button class="btn-sm green" data-marcar-retiro="${p.id}"><i class="ti ti-check"></i> Marcar retirado</button>` : ''}
         </div>`
       }).join('')
     }
