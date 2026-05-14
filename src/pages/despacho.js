@@ -173,14 +173,14 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     const { data: recData } = await query
     currentRecorridos = recData || []
 
-    const { data: allPicking } = await supabase.from('picking').select('*, clientes(transporte_tipo, transporte_id, transportes(retira_deposito))').eq('estado', 'habilitado')
+    const { data: allPicking } = await supabase.from('picking').select('*, clientes(transporte_tipo, transporte_id)').eq('estado', 'habilitado')
     const notasEnRecorrido = currentRecorridos.flatMap(r => r.recorrido_pedidos.map(p => p.nota_pedido))
 
     const pedidosRetiro = (allPicking || []).filter(p => {
       if (notasEnRecorrido.includes(p.nota_pedido)) return false
       const tipo = p.clientes?.transporte_tipo
       if (tipo === 'retira') return true
-      if (tipo === 'externo' && p.clientes?.transportes?.retira_deposito) return true
+    
       return false
     })
 
