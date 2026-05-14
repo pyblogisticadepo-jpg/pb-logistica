@@ -1,4 +1,4 @@
-export async function renderDespacho(el, { supabase, currentUser }) {
+export async function renderDespacho(el, { supabase, currentUser, isObserver }) {
   el.innerHTML = `
     <div class="page-header">
       <div class="page-title-group"><span class="page-title">Despacho</span><span class="page-subtitle" id="despacho-sub"></span></div>
@@ -146,22 +146,60 @@ export async function renderDespacho(el, { supabase, currentUser }) {
       }).eq('id', parseInt(btn.dataset.entregar))
       if (error) { alert('Error: ' + error.message); return }
       await load()
+      return
+    }
+
+    if (btn.dataset.marcarRetiro) {
+      const pickingId = parseInt(btn.dataset.marcarRetiro)
+      const hora = new Date().toTimeString().slice(0,5)
+      const fecha = new Date().toISOString().split('T')[0]
+      const { data: pk } = await supabase.from('picking').select('nota_pedido, cliente_nombre, documentacion').eq('id', pickingId).single()
+      if (!pk) return
+      await supabase.from('retiras').insert({
+        nota_pedido: pk.nota_pedido,
+        cliente_nombre: pk.cliente_nombre,
+        documentacion: pk.documentacion,
+        estado: 'retirado',
+        hora_retiro: hora,
+        fecha
+      })
+      await load()
     }
   })
 
   async function load() {
     let query = supabase.from('recorridos').select(`*, recorrido_pedidos(*)`).order('created_at', { ascending: false })
     if (currentUser.rol === 'operario') query = query.eq('operario', currentUser.nombre)
-    const { data, error } = await query
-    if (error) { console.error(error); return }
-    currentRecorridos = data || []
-    el.querySelector('#despacho-sub').textContent = currentRecorridos.length + ' recorrido' + (currentRecorridos.length !== 1 ? 's' : '')
+    const { data: recData } = await query
+    currentRecorridos = recData || []
+
+    const { data: allPicking } = await supabase.from('picking').select('*, clientes(transporte_tipo, transporte_id, transportes(retira_deposito))').eq('estado', 'habilitado')
+    const notasEnRecorrido = currentRecorridos.flatMap(r => r.recorrido_pedidos.map(p => p.nota_pedido))
+
+    const pedidosRetiro = (allPicking || []).filter(p => {
+      if (notasEnRecorrido.includes(p.nota_pedido)) return false
+      const tipo = p.clientes?.transporte_tipo
+      if (tipo === 'retira') return true
+      if (tipo === 'externo' && p.clientes?.transportes?.retira_deposito) return true
+      return false
+    })
+
+    const today = new Date().toISOString().split('T')[0]
+    const { data: retirasHoy } = await supabase.from('retiras').select('*').eq('fecha', today)
+    const notasYaRetiradas = (retirasHoy || []).map(r => r.nota_pedido)
+    const pendientesRetiro = pedidosRetiro.filter(p => !notasYaRetiradas.includes(p.nota_pedido))
+    const despachadosRetiro = retirasHoy || []
+
     const content = el.querySelector('#despacho-content')
-    if (currentRecorridos.length === 0) {
-      content.innerHTML = '<div class="empty-state" style="padding:60px">Sin recorridos asignados hoy</div>'
-      return
+    el.querySelector('#despacho-sub').textContent = currentRecorridos.length + ' recorrido' + (currentRecorridos.length !== 1 ? 's' : '')
+
+    let html = ''
+
+    if (currentRecorridos.length === 0 && pendientesRetiro.length === 0 && despachadosRetiro.length === 0) {
+      html = '<div class="empty-state" style="padding:60px">Sin actividad de despacho hoy</div>'
     }
-    content.innerHTML = currentRecorridos.map(r => {
+
+    html += currentRecorridos.map(r => {
       const ent = r.recorrido_pedidos.filter(p => p.estado === 'entregado').length
       const tot = r.recorrido_pedidos.length
       const estBadge = r.estado === 'en-ruta' ? '<span class="badge badge-en-ruta">En ruta</span>' : r.estado === 'completado' ? '<span class="badge badge-completado">Completado</span>' : '<span class="badge badge-pendiente">Pendiente</span>'
@@ -173,8 +211,8 @@ export async function renderDespacho(el, { supabase, currentUser }) {
             <div style="font-size:11px;color:#333;margin-top:3px">Km salida: <span style="font-family:'DM Mono',monospace">${r.km_salida || '—'}</span> · Km regreso: <span style="font-family:'DM Mono',monospace">${r.km_regreso || '—'}</span>${r.km_salida && r.km_regreso ? ' · <span style="color:#52c452;font-family:\'DM Mono\',monospace">' + (r.km_regreso - r.km_salida) + ' km</span>' : ''}${r.hora_salida ? ' · Salida: ' + r.hora_salida : ''}</div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
-            ${r.estado === 'pendiente' ? `<button class="btn-sm orange" data-salida="${r.id}"><i class="ti ti-truck-delivery"></i> Confirmar salida</button>` : ''}
-            ${r.estado === 'en-ruta' && ent === tot && tot > 0 ? `<button class="btn-sm green" data-regreso="${r.id}"><i class="ti ti-home"></i> Confirmar regreso</button>` : ''}
+            ${!isObserver && r.estado === 'pendiente' ? `<button class="btn-sm orange" data-salida="${r.id}"><i class="ti ti-truck-delivery"></i> Confirmar salida</button>` : ''}
+            ${!isObserver && r.estado === 'en-ruta' && ent === tot && tot > 0 ? `<button class="btn-sm green" data-regreso="${r.id}"><i class="ti ti-home"></i> Confirmar regreso</button>` : ''}
           </div>
         </div>
         ${tot === 0 ? '<div style="color:#2a2a2a;font-size:12px;padding:8px 0">Sin pedidos en este recorrido</div>' :
@@ -186,12 +224,44 @@ export async function renderDespacho(el, { supabase, currentUser }) {
                 <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:2px">${p.cliente_nombre}</div>
                 <div style="font-size:11px;color:#444"><i class="ti ti-map-pin" style="font-size:10px"></i> ${p.direccion || '—'} · ${p.nota_pedido}${p.tipo === 'externo' ? ' · ' + (p.transporte_nombre || '') : ''}</div>
               </div>
-              <div>${p.estado === 'pendiente' && r.estado === 'en-ruta' ? `<button class="btn-sm green" data-entregar="${p.id}"><i class="ti ti-check"></i> Entregado</button>` : p.estado === 'entregado' ? `<span class="badge badge-ok" style="font-size:9px">✓ ${p.hora_entrega || ''}</span>` : ''}</div>
+              <div>${!isObserver && p.estado === 'pendiente' && r.estado === 'en-ruta' ? `<button class="btn-sm green" data-entregar="${p.id}"><i class="ti ti-check"></i> Entregado</button>` : p.estado === 'entregado' ? `<span class="badge badge-ok" style="font-size:9px">✓ ${p.hora_entrega || ''}</span>` : ''}</div>
             </div>
             ${p.estado === 'entregado' ? `<div class="pedido-entregado-info"><span style="color:#52c452;font-family:'DM Mono',monospace;font-size:11px"><i class="ti ti-clock" style="font-size:10px"></i> Entregado ${p.hora_entrega || ''}</span></div>` : ''}
           </div>`).join('')}
       </div>`
     }).join('')
+
+    if (pendientesRetiro.length > 0) {
+      html += `<div class="section-label" style="margin-top:24px">Retiros pendientes</div>`
+      html += pendientesRetiro.map(p => {
+        const tipo = p.clientes?.transporte_tipo
+        const esRetiraCliente = tipo === 'retira'
+        const label = esRetiraCliente ? 'Retira cliente' : 'Retira transporte'
+        const color = esRetiraCliente ? '#4dd4d4' : '#d4a830'
+        const borderColor = esRetiraCliente ? '#1a3636' : '#2c2400'
+        return `<div style="background:#111;border:1px solid ${borderColor};padding:14px 16px;margin-bottom:8px;border-radius:2px;display:flex;align-items:center;gap:12px;">
+          <div style="flex:1">
+            <div style="font-size:13px;color:#ccc;font-weight:500">${p.cliente_nombre} <span style="font-size:10px;color:${color};margin-left:6px">${label}</span></div>
+            <div style="font-size:11px;color:#444;margin-top:2px">${p.nota_pedido} · Doc: ${p.documentacion === 'fac_remito' ? 'Fac. y Remito' : p.documentacion === 'fac_etiqueta' ? 'Fac. y Etiqueta' : p.documentacion || '—'}</div>
+          </div>
+          ${!isObserver ? `<button class="btn-sm green" data-marcar-retiro="${p.id}"><i class="ti ti-check"></i> Marcar retirado</button>` : ''}
+        </div>`
+      }).join('')
+    }
+
+    if (despachadosRetiro.length > 0) {
+      html += `<div class="section-label" style="margin-top:24px">Retirados hoy</div>`
+      html += despachadosRetiro.map(r => `
+        <div style="background:#0d1e0d;border:1px solid #1a361a;padding:12px 16px;margin-bottom:8px;border-radius:2px;display:flex;align-items:center;gap:12px;opacity:.8">
+          <div style="flex:1">
+            <div style="font-size:13px;color:#52c452;font-weight:500">${r.cliente_nombre}</div>
+            <div style="font-size:11px;color:#2a5a2a;margin-top:2px">${r.nota_pedido} · Retirado: ${r.hora_retiro || '—'}</div>
+          </div>
+          <span class="badge badge-ok" style="font-size:9px">✓ Retirado</span>
+        </div>`).join('')
+    }
+
+    content.innerHTML = html
   }
 
   await load()
