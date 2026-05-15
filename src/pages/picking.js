@@ -32,9 +32,11 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
           </div>
           <div class="form-row">
             <label class="form-label">Cliente <span class="req">*</span></label>
-            <input class="form-input" id="s1-cliente" placeholder="Nombre del cliente" list="s1-client-list">
-            <datalist id="s1-client-list"></datalist>
-            <div class="form-hint">Si no existe se creará automáticamente</div>
+            <input class="form-input" id="s1-cliente-search" placeholder="Buscar cliente..." autocomplete="off">
+            <div id="s1-cliente-dropdown" style="display:none;background:#141414;border:1px solid #222;border-top:none;max-height:200px;overflow-y:auto;border-radius:0 0 2px 2px;"></div>
+            <input type="hidden" id="s1-cliente-id">
+            <input type="hidden" id="s1-cliente-nombre">
+            <div class="form-hint">Buscá un cliente existente o escribí uno nuevo</div>
           </div>
         </div>
         <div class="modal-footer"><button class="btn-cancel" id="cancel-pk1">Cancelar</button><button class="btn-confirm" id="save-pk1">Registrar — En preparación</button></div>
@@ -107,6 +109,7 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
   let editingId = null
   let clientes = []
   let profiles = []
+  let clienteSeleccionado = null
 
   const DOC_LABEL = { fac_remito: 'Fac. y Remito', fac_etiqueta: 'Fac. y Etiqueta', remito: 'Remito solo' }
   const ESTADO_HTML = {
@@ -133,7 +136,51 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     el.querySelector('#s3-warn').style.display = el.querySelector('#s3-doc').value === 'remito' ? 'block' : 'none'
   }
 
-  // Calcular tiempo cuando se cargan hora inicio y fin
+  // Buscador de clientes
+  const searchInput = el.querySelector('#s1-cliente-search')
+  const dropdown = el.querySelector('#s1-cliente-dropdown')
+
+  searchInput.oninput = () => {
+    const q = searchInput.value.toLowerCase().trim()
+    clienteSeleccionado = null
+    el.querySelector('#s1-cliente-id').value = ''
+    el.querySelector('#s1-cliente-nombre').value = searchInput.value
+
+    if (q.length < 1) { dropdown.style.display = 'none'; return }
+
+    const filtrados = clientes.filter(c => c.nombre.toLowerCase().includes(q)).slice(0, 8)
+    if (filtrados.length === 0) {
+      dropdown.innerHTML = `<div style="padding:10px 14px;font-size:12px;color:#444">No encontrado — se creará como nuevo cliente</div>`
+    } else {
+      dropdown.innerHTML = filtrados.map(c => `
+        <div data-id="${c.id}" data-nombre="${c.nombre}" style="padding:10px 14px;font-size:13px;color:#ccc;cursor:pointer;border-bottom:1px solid #1a1a1a;">
+          ${c.nombre}
+          ${c.direccion ? `<div style="font-size:11px;color:#444;margin-top:2px">${c.direccion}</div>` : '<div style="font-size:11px;color:#333;margin-top:2px">Sin dirección</div>'}
+        </div>`).join('')
+    }
+    dropdown.style.display = 'block'
+
+    dropdown.querySelectorAll('[data-id]').forEach(item => {
+      item.onmouseenter = () => item.style.background = '#1a1a1a'
+      item.onmouseleave = () => item.style.background = 'transparent'
+      item.onclick = () => {
+        clienteSeleccionado = { id: item.dataset.id, nombre: item.dataset.nombre }
+        searchInput.value = item.dataset.nombre
+        el.querySelector('#s1-cliente-id').value = item.dataset.id
+        el.querySelector('#s1-cliente-nombre').value = item.dataset.nombre
+        dropdown.style.display = 'none'
+      }
+    })
+  }
+
+  // Cerrar dropdown al clickear afuera
+  document.addEventListener('click', (e) => {
+    if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) {
+      dropdown.style.display = 'none'
+    }
+  })
+
+  // Calcular tiempo
   function calcularTiempo() {
     const inicio = el.querySelector('#s2-inicio').value
     const fin = el.querySelector('#s2-fin').value
@@ -158,15 +205,13 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
   async function load() {
     const [{ data: pk }, { data: cl }, { data: pr }] = await Promise.all([
       supabase.from('picking').select('*').order('hora_registro', { ascending: false }),
-      supabase.from('clientes').select('id,nombre').order('nombre'),
+      supabase.from('clientes').select('id,nombre,direccion').order('nombre'),
       supabase.from('profiles').select('nombre,rol').eq('activo', true)
     ])
     allPicking = pk || []
     clientes = cl || []
     profiles = pr || []
     renderTable(allPicking)
-    const dl = el.querySelector('#s1-client-list')
-    dl.innerHTML = clientes.map(c => `<option value="${c.nombre}">`).join('')
   }
 
   function renderTable(lista) {
@@ -232,23 +277,38 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     el.querySelector('#btn-new-picking').onclick = () => {
       el.querySelector('#s1-nota').value = ''
       el.querySelector('#s1-lineas').value = ''
-      el.querySelector('#s1-cliente').value = ''
+      searchInput.value = ''
+      el.querySelector('#s1-cliente-id').value = ''
+      el.querySelector('#s1-cliente-nombre').value = ''
+      dropdown.style.display = 'none'
+      clienteSeleccionado = null
       m1.classList.add('open')
     }
   }
 
   el.querySelector('#save-pk1').onclick = async () => {
     const nota = el.querySelector('#s1-nota').value.trim()
-    const clienteNombre = el.querySelector('#s1-cliente').value.trim()
     const lineas = parseInt(el.querySelector('#s1-lineas').value)
+    const clienteNombre = el.querySelector('#s1-cliente-nombre').value.trim() || searchInput.value.trim()
+    const clienteIdExistente = el.querySelector('#s1-cliente-id').value
+
     if (!nota || !clienteNombre || !lineas) { alert('Completá todos los campos'); return }
-    let clienteId = clientes.find(c => c.nombre.toLowerCase() === clienteNombre.toLowerCase())?.id
+
+    let clienteId = clienteIdExistente || null
     if (!clienteId) {
+      // Crear cliente nuevo
       const { data } = await supabase.from('clientes').insert({ nombre: clienteNombre }).select().single()
       clienteId = data?.id
-      clientes.push({ id: clienteId, nombre: clienteNombre })
+      clientes.push({ id: clienteId, nombre: clienteNombre, direccion: null })
     }
-    await supabase.from('picking').insert({ nota_pedido: '#' + nota, cliente_id: clienteId, cliente_nombre: clienteNombre, lineas, estado: 'preparacion' })
+
+    await supabase.from('picking').insert({
+      nota_pedido: '#' + nota,
+      cliente_id: clienteId,
+      cliente_nombre: clienteNombre,
+      lineas,
+      estado: 'preparacion'
+    })
     m1.classList.remove('open')
     await load()
   }
