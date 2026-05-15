@@ -245,13 +245,11 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     const { data: recData } = await query
     currentRecorridos = recData || []
 
-    // Traer pickings habilitados con info de cliente
     const { data: allPicking } = await supabase
       .from('picking')
       .select('id, nota_pedido, cliente_nombre, cliente_id, documentacion, estado')
       .eq('estado', 'habilitado')
 
-    // Traer clientes por separado para los que tienen cliente_id
     const clienteIds = [...new Set((allPicking || []).map(p => p.cliente_id).filter(Boolean))]
     let clientesMap = {}
     if (clienteIds.length > 0) {
@@ -262,7 +260,10 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       ;(clientes || []).forEach(c => { clientesMap[c.id] = c })
     }
 
-    const notasEnRecorrido = currentRecorridos.flatMap(r => r.recorrido_pedidos.map(p => p.nota_pedido))
+    // Solo excluir pedidos en recorridos activos (no completados)
+    const notasEnRecorrido = currentRecorridos
+      .filter(r => r.estado !== 'completado')
+      .flatMap(r => r.recorrido_pedidos.map(p => p.nota_pedido))
 
     const pedidosRetiro = (allPicking || []).filter(p => {
       if (notasEnRecorrido.includes(p.nota_pedido)) return false
