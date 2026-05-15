@@ -12,18 +12,20 @@ export async function renderVehiculos(el, { supabase, currentUser, isObserver })
     </div>
     <div class="tab-content active" id="tab-flota"></div>
     ${canUsar ? `<div class="tab-content" id="tab-uso">
-      <div style="background:#111;border:1px solid #1e1e1e;padding:20px;border-radius:2px;max-width:420px;">
+      <div id="uso-pendiente-wrap"></div>
+      <div style="background:#111;border:1px solid #1e1e1e;padding:20px;border-radius:2px;max-width:420px;" id="uso-form-wrap">
+        <div class="section-label" style="margin-top:0">Registrar salida</div>
         <div class="form-row"><label class="form-label">Vehículo <span class="req">*</span></label>
           <select class="form-select" id="uso-veh"></select>
         </div>
-        <div class="form-row-2">
-          <div><label class="form-label">Km salida <span class="req">*</span></label><input class="form-input" id="uso-km-sal" type="number" placeholder="Ej: 45820"></div>
-          <div><label class="form-label">Km regreso</label><input class="form-input" id="uso-km-reg" type="number" placeholder="Al volver"></div>
+        <div class="form-row">
+          <label class="form-label">Km salida <span class="req">*</span></label>
+          <input class="form-input" id="uso-km-sal" type="number" placeholder="Ej: 45820">
         </div>
         <div class="form-row"><label class="form-label">Motivo</label>
           <select class="form-select" id="uso-motivo"><option value="Reparto">Reparto</option><option value="Visita a cliente">Visita a cliente</option><option value="Otro">Otro</option></select>
         </div>
-        <button class="btn-confirm" style="width:100%" id="save-uso">Registrar uso</button>
+        <button class="btn-confirm" style="width:100%" id="save-uso">Registrar salida</button>
       </div>
     </div>` : '<div class="tab-content" id="tab-uso"></div>'}
     <div class="tab-content" id="tab-historial">
@@ -41,35 +43,86 @@ export async function renderVehiculos(el, { supabase, currentUser, isObserver })
       btn.classList.add('active')
       el.querySelector('#tab-' + btn.dataset.tab).classList.add('active')
       if (btn.dataset.tab === 'historial') loadHistorial()
+      if (btn.dataset.tab === 'uso') loadUsoPendiente()
     }
   })
 
   async function loadFlota() {
     const { data } = await supabase.from('vehiculos').select('*').eq('activo', true)
     const flota = data || []
+
+    // Populate selects — solo vehículos NO en uso
+    const disponibles = flota.filter(v => !v.en_uso)
     const sel = el.querySelector('#uso-veh')
-    if (sel) sel.innerHTML = flota.map(v => `<option value="${v.nombre}">${v.nombre}</option>`).join('')
+    if (sel) {
+      sel.innerHTML = disponibles.length === 0
+        ? '<option value="">— Sin vehículos disponibles —</option>'
+        : disponibles.map(v => `<option value="${v.nombre}">${v.nombre}</option>`).join('')
+    }
+
     el.querySelector('#hist-veh-filter').innerHTML = '<option value="">Todos los vehículos</option>' + flota.map(v => `<option>${v.nombre}</option>`).join('')
+
     const tab = el.querySelector('#tab-flota')
     tab.innerHTML = flota.map(v => `
-      <div style="background:#111;border:1px solid #1e1e1e;padding:16px 18px;margin-bottom:10px;border-radius:2px;display:flex;align-items:center;gap:16px;">
-        <div style="width:40px;height:40px;background:#1a1a1a;border:1px solid #222;border-radius:2px;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-car" style="font-size:20px;color:#444"></i></div>
-        <div style="flex:1">
-          <div style="font-size:14px;color:#ccc;font-weight:600">${v.nombre}</div>
-          <div style="font-size:11px;color:#444;font-family:'DM Mono',monospace;margin-top:2px">${v.patente || '—'}</div>
-          <div style="font-size:12px;color:#333;margin-top:4px">Km actuales: <span style="font-family:'DM Mono',monospace;color:#666">${(v.km_actual || 0).toLocaleString()}</span></div>
+      <div style="background:#111;border:1px solid ${v.en_uso ? '#1a3a52' : '#1e1e1e'};padding:16px 18px;margin-bottom:10px;border-radius:2px;display:flex;align-items:center;gap:16px;">
+        <div style="width:40px;height:40px;background:#1a1a1a;border:1px solid #222;border-radius:2px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <i class="ti ti-car" style="font-size:20px;color:${v.en_uso ? '#5aadee' : '#444'}"></i>
         </div>
-        ${canManageFlota ? `<button class="btn-sm primary" data-edit-veh="${v.id}" data-km="${v.km_actual}"><i class="ti ti-pencil"></i></button>` : ''}
+        <div style="flex:1">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+            <div style="font-size:14px;color:#ccc;font-weight:600">${v.nombre}</div>
+            ${v.en_uso ? '<span class="badge badge-en-ruta" style="font-size:9px">En uso</span>' : '<span style="font-size:10px;color:#333;letter-spacing:1px">Disponible</span>'}
+          </div>
+          <div style="font-size:11px;color:#444;font-family:\'DM Mono\',monospace">${v.patente || '—'}</div>
+          <div style="font-size:12px;color:#333;margin-top:4px">Km actuales: <span style="font-family:\'DM Mono\',monospace;color:#666">${(v.km_actual || 0).toLocaleString()}</span></div>
+        </div>
+        ${canManageFlota && !v.en_uso ? `<button class="btn-sm primary" data-edit-veh="${v.id}" data-km="${v.km_actual}"><i class="ti ti-pencil"></i></button>` : ''}
       </div>`).join('')
 
     if (canManageFlota) {
       tab.querySelectorAll('[data-edit-veh]').forEach(btn => {
         btn.onclick = async () => {
           const km = parseInt(prompt(`Actualizar km (actual: ${btn.dataset.km}):`))
-          if (!isNaN(km) && km > 0) { await supabase.from('vehiculos').update({ km_actual: km }).eq('id', btn.dataset.editVeh); loadFlota() }
+          if (!isNaN(km) && km > 0) {
+            await supabase.from('vehiculos').update({ km_actual: km }).eq('id', btn.dataset.editVeh)
+            loadFlota()
+          }
         }
       })
     }
+  }
+
+  async function loadUsoPendiente() {
+    const wrap = el.querySelector('#uso-pendiente-wrap')
+    if (!wrap) return
+    // Buscar usos sin km de regreso del usuario actual
+    const { data } = await supabase.from('vehiculos_uso').select('*')
+      .eq('usuario', currentUser.nombre)
+      .is('km_regreso', null)
+      .order('created_at', { ascending: false })
+    const pendientes = data || []
+    if (pendientes.length === 0) { wrap.innerHTML = ''; return }
+    wrap.innerHTML = pendientes.map(u => `
+      <div style="background:#0d1f2d;border:1px solid #1a3a52;padding:14px 16px;margin-bottom:12px;border-radius:2px;max-width:420px;">
+        <div style="font-size:13px;color:#5aadee;font-weight:500;margin-bottom:8px"><i class="ti ti-truck-delivery"></i> Uso pendiente de cierre — ${u.vehiculo_nombre}</div>
+        <div style="font-size:12px;color:#444;margin-bottom:12px">Km salida: <span style="font-family:'DM Mono',monospace;color:#888">${u.km_salida?.toLocaleString()}</span> · Motivo: ${u.motivo || '—'}</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input class="form-input" id="regreso-km-${u.id}" type="number" placeholder="Km de regreso" style="max-width:180px">
+          <button class="btn-confirm" style="padding:9px 14px;font-size:12px" data-cerrar-uso="${u.id}" data-veh="${u.vehiculo_nombre}">Registrar regreso</button>
+        </div>
+      </div>`).join('')
+
+    wrap.querySelectorAll('[data-cerrar-uso]').forEach(btn => {
+      btn.onclick = async () => {
+        const km = parseInt(el.querySelector('#regreso-km-' + btn.dataset.cerrarUso).value)
+        const uso = pendientes.find(u => u.id === parseInt(btn.dataset.cerrarUso))
+        if (!km || km <= uso.km_salida) { alert('Km de regreso inválido'); return }
+        await supabase.from('vehiculos_uso').update({ km_regreso: km }).eq('id', btn.dataset.cerrarUso)
+        await supabase.from('vehiculos').update({ km_actual: km, en_uso: false, uso_actual_id: null }).eq('nombre', btn.dataset.veh)
+        await loadUsoPendiente()
+        await loadFlota()
+      }
+    })
   }
 
   const saveUsoBtn = el.querySelector('#save-uso')
@@ -77,14 +130,18 @@ export async function renderVehiculos(el, { supabase, currentUser, isObserver })
     saveUsoBtn.onclick = async () => {
       const veh = el.querySelector('#uso-veh').value
       const kmSal = parseInt(el.querySelector('#uso-km-sal').value)
-      const kmReg = el.querySelector('#uso-km-reg').value ? parseInt(el.querySelector('#uso-km-reg').value) : null
       const motivo = el.querySelector('#uso-motivo').value
       if (!veh || !kmSal) { alert('Completá vehículo y km de salida'); return }
-      await supabase.from('vehiculos_uso').insert({ vehiculo_nombre: veh, usuario: currentUser.nombre, motivo, km_salida: kmSal, km_regreso: kmReg })
-      if (kmReg) await supabase.from('vehiculos').update({ km_actual: kmReg }).eq('nombre', veh)
+      // Registrar uso
+      const { data: uso } = await supabase.from('vehiculos_uso').insert({
+        vehiculo_nombre: veh, usuario: currentUser.nombre, motivo, km_salida: kmSal
+      }).select().single()
+      // Marcar vehículo como en uso
+      await supabase.from('vehiculos').update({ en_uso: true, uso_actual_id: uso?.id }).eq('nombre', veh)
       el.querySelector('#uso-km-sal').value = ''
-      el.querySelector('#uso-km-reg').value = ''
-      alert('✓ Uso registrado')
+      await loadFlota()
+      await loadUsoPendiente()
+      alert('✓ Salida registrada')
     }
   }
 
@@ -106,7 +163,7 @@ export async function renderVehiculos(el, { supabase, currentUser, isObserver })
           <td style="color:#ccc">${h.usuario}</td>
           <td style="color:#555">${h.motivo || '—'}</td>
           <td style="font-family:'DM Mono',monospace">${h.km_salida?.toLocaleString()}</td>
-          <td style="font-family:'DM Mono',monospace">${h.km_regreso ? h.km_regreso.toLocaleString() : '<span style="color:#2a2a2a">—</span>'}</td>
+          <td style="font-family:'DM Mono',monospace">${h.km_regreso ? h.km_regreso.toLocaleString() : '<span style="color:#e05555">Pendiente</span>'}</td>
           <td style="font-family:'DM Mono',monospace;color:${diff ? '#52c452' : '#2a2a2a'}">${diff ? diff + ' km' : '—'}</td>
         </tr>`}).join('')}
       </tbody></table>`

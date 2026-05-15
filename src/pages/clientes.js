@@ -69,7 +69,7 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
     if (transportes.length === 0) {
       sel.innerHTML = '<option value="">— Sin transportes cargados —</option>'
     } else {
-      sel.innerHTML = transportes.map(t => `<option value="${t.id}">${t.nombre}${t.direccion ? '' : ' ⚠️ sin dirección'}</option>`).join('')
+      sel.innerHTML = transportes.map(t => `<option value="${t.id}">${t.nombre}${t.retira_deposito ? ' (retira en depósito)' : !t.direccion ? ' ⚠️ sin dirección' : ''}</option>`).join('')
     }
   }
 
@@ -77,15 +77,20 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
     await loadTransportes()
     const { data } = await supabase.from('clientes').select('*').order('nombre')
     allClientes = data || []
-    // Enrich with transporte names
+
+    // Enrich with transporte data
     const transpIds = [...new Set(allClientes.map(c => c.transporte_id).filter(Boolean))]
+    let transpMap = {}
     if (transpIds.length > 0) {
-      const { data: transp } = await supabase.from('transportes').select('id, nombre').in('id', transpIds)
-      const transpMap = {}
-      ;(transp || []).forEach(t => { transpMap[t.id] = t.nombre })
-      allClientes = allClientes.map(c => ({ ...c, _transporte_nombre: transpMap[c.transporte_id] || null }))
+      const { data: transp } = await supabase.from('transportes').select('id, nombre, retira_deposito').in('id', transpIds)
+      ;(transp || []).forEach(t => { transpMap[t.id] = t })
     }
-    allClientes = data || []
+    allClientes = allClientes.map(c => ({
+      ...c,
+      _transporte_nombre: transpMap[c.transporte_id]?.nombre || null,
+      _retira_deposito: transpMap[c.transporte_id]?.retira_deposito || false
+    }))
+
     renderTable(allClientes)
     checkIncompletos(allClientes)
   }
@@ -106,6 +111,16 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
     return c._transporte_nombre || 'Transp. externo'
   }
 
+  function isHabilitado(c) {
+    if (c.transporte_tipo === 'retira') return true
+    if (c.transporte_tipo === 'pyb') return !!c.direccion
+    if (c.transporte_tipo === 'externo') {
+      if (c._retira_deposito) return true  // retira en depósito siempre habilitado
+      return !!c._transporte_nombre        // externo habilitado si tiene transporte asignado
+    }
+    return false
+  }
+
   function renderTable(lista) {
     el.querySelector('#clientes-count').textContent = lista.length + ' registros'
     const wrap = el.querySelector('#clientes-table-wrap')
@@ -113,16 +128,15 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
     wrap.innerHTML = `<table class="data-table">
       <thead><tr><th>Cliente</th><th>Dirección</th><th>Transporte habitual</th><th>Hab. reparto</th>${canEdit ? '<th></th>' : ''}</tr></thead>
       <tbody>${lista.map(c => {
-        const habilitado = c.transporte_tipo === 'retira' ? true :
-          c.transporte_tipo === 'pyb' ? !!c.direccion :
-          !!c.transportes?.nombre
+        const hab = isHabilitado(c)
         return `<tr>
           <td style="color:#ccc;font-weight:500">${c.nombre}</td>
           <td>${c.direccion || '<span style="color:#2a2a2a;font-style:italic">Sin cargar</span>'}</td>
           <td style="color:#666;font-size:12px">${getTransporteLabel(c)}</td>
-          <td>${habilitado ? '<span class="badge badge-ok">Habilitado</span>' : '<span class="badge badge-warn">Sin dirección</span>'}</td>
+          <td>${hab ? '<span class="badge badge-ok">Habilitado</span>' : '<span class="badge badge-warn">Sin dirección</span>'}</td>
           ${canEdit ? `<td><button class="btn-sm" data-edit="${c.id}"><i class="ti ti-pencil"></i> Editar</button></td>` : ''}
-        </tr>`}).join('')}
+        </tr>`
+      }).join('')}
       </tbody></table>`
 
     wrap.querySelectorAll('[data-edit]').forEach(btn => {
