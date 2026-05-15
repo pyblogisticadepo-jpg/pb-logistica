@@ -297,7 +297,7 @@ export async function renderProductividad(el, { supabase }) {
     const op = el.querySelector('#prod-op').value
     const desde = el.querySelector('#prod-desde').value
     const hasta = el.querySelector('#prod-hasta').value
-    let q = supabase.from('picking').select('*').gte('fecha', desde).lte('fecha', hasta)
+    let q = supabase.from('picking').select('*').gte('fecha', desde).lte('fecha', hasta).order('fecha', { ascending: false }).order('hora_registro', { ascending: false })
     if (op) q = q.eq('operario_arma', op)
     const { data } = await q
     const lista = data || []
