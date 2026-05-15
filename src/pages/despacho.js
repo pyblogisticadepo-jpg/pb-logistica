@@ -113,7 +113,6 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
   modalRegreso.onclick = (e) => { if (e.target === modalRegreso) modalRegreso.classList.remove('open') }
   modalNoEntregado.onclick = (e) => { if (e.target === modalNoEntregado) modalNoEntregado.classList.remove('open') }
 
-  // Ocultar km cuando es vehículo personal
   el.querySelector('#salida-vehiculo').onchange = () => {
     const esPersonal = el.querySelector('#salida-vehiculo').value === 'vehiculo-personal'
     el.querySelector('#salida-km-wrap').style.display = esPersonal ? 'none' : 'block'
@@ -246,13 +245,18 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     const { data: recData } = await query
     currentRecorridos = recData || []
 
-    const { data: allPicking } = await supabase.from('picking').select('*, clientes(transporte_tipo, transporte_id)').eq('estado', 'habilitado')
+    const { data: allPicking } = await supabase
+      .from('picking')
+      .select('*, clientes(transporte_tipo, transporte_id, transportes(nombre, retira_deposito))')
+      .eq('estado', 'habilitado')
+
     const notasEnRecorrido = currentRecorridos.flatMap(r => r.recorrido_pedidos.map(p => p.nota_pedido))
 
     const pedidosRetiro = (allPicking || []).filter(p => {
       if (notasEnRecorrido.includes(p.nota_pedido)) return false
       const tipo = p.clientes?.transporte_tipo
       if (tipo === 'retira') return true
+      if (tipo === 'externo' && p.clientes?.transportes?.retira_deposito) return true
       return false
     })
 
@@ -314,7 +318,8 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       html += pendientesRetiro.map(p => {
         const tipo = p.clientes?.transporte_tipo
         const esRetiraCliente = tipo === 'retira'
-        const label = esRetiraCliente ? 'Retira cliente' : 'Retira transporte'
+        const transporteNombre = p.clientes?.transportes?.nombre
+        const label = esRetiraCliente ? 'Retira cliente' : `Retira ${transporteNombre || 'transporte'}`
         const color = esRetiraCliente ? '#4dd4d4' : '#d4a830'
         const borderColor = esRetiraCliente ? '#1a3636' : '#2c2400'
         return `<div style="background:#111;border:1px solid ${borderColor};padding:14px 16px;margin-bottom:8px;border-radius:2px;display:flex;align-items:center;gap:12px;">
