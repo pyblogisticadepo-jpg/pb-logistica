@@ -24,9 +24,10 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
               <option>Partner gris</option>
               <option>Sprinter verde</option>
               <option>Saveiro</option>
+              <option value="vehiculo-personal">🚗 Vehículo personal</option>
             </select>
           </div>
-          <div class="form-row">
+          <div class="form-row" id="salida-km-wrap">
             <label class="form-label">Km de salida <span class="req">*</span></label>
             <input class="form-input" id="salida-km" type="number" placeholder="Ej: 45820">
           </div>
@@ -46,7 +47,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
         </div>
         <div class="modal-body">
           <div id="regreso-resumen" style="background:#111;border:1px solid #1e1e1e;padding:14px 16px;border-radius:2px;margin-bottom:20px;font-size:13px;color:#666;line-height:1.8;"></div>
-          <div class="form-row">
+          <div class="form-row" id="regreso-km-wrap">
             <label class="form-label">Km de regreso <span class="req">*</span></label>
             <input class="form-input" id="regreso-km" type="number" placeholder="Ej: 45951">
           </div>
@@ -112,6 +113,12 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
   modalRegreso.onclick = (e) => { if (e.target === modalRegreso) modalRegreso.classList.remove('open') }
   modalNoEntregado.onclick = (e) => { if (e.target === modalNoEntregado) modalNoEntregado.classList.remove('open') }
 
+  // Ocultar km cuando es vehículo personal
+  el.querySelector('#salida-vehiculo').onchange = () => {
+    const esPersonal = el.querySelector('#salida-vehiculo').value === 'vehiculo-personal'
+    el.querySelector('#salida-km-wrap').style.display = esPersonal ? 'none' : 'block'
+  }
+
   el.querySelector('#regreso-km').oninput = () => {
     const km = parseInt(el.querySelector('#regreso-km').value)
     const preview = el.querySelector('#km-diff-preview')
@@ -126,25 +133,29 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
 
   el.querySelector('#save-salida').onclick = async () => {
     const vehiculo = el.querySelector('#salida-vehiculo').value
-    const km = parseInt(el.querySelector('#salida-km').value)
-    if (!vehiculo || !km) { alert('Completá vehículo y km de salida'); return }
+    if (!vehiculo) { alert('Seleccioná un vehículo'); return }
+    const esPersonal = vehiculo === 'vehiculo-personal'
+    const km = esPersonal ? null : parseInt(el.querySelector('#salida-km').value)
+    if (!esPersonal && !km) { alert('Ingresá el km de salida'); return }
     const hora = new Date().toTimeString().slice(0,5)
+    const vehiculoLabel = esPersonal ? 'Vehículo personal' : vehiculo
     const { error } = await supabase.from('recorridos').update({
-      estado: 'en-ruta', hora_salida: hora, vehiculo, km_salida: km
+      estado: 'en-ruta', hora_salida: hora, vehiculo: vehiculoLabel, km_salida: km
     }).eq('id', activeRecorridoId)
     if (error) { alert('Error: ' + error.message); return }
-    await supabase.from('vehiculos').update({ en_uso: true }).eq('nombre', vehiculo)
+    if (!esPersonal) await supabase.from('vehiculos').update({ en_uso: true }).eq('nombre', vehiculo)
     modalSalida.classList.remove('open')
     await load()
   }
 
   el.querySelector('#save-regreso').onclick = async () => {
-    const km = parseInt(el.querySelector('#regreso-km').value)
     const r = currentRecorridos.find(x => x.id === activeRecorridoId)
-    if (!km || !r || km <= r.km_salida) { alert('Ingresá un km de regreso válido'); return }
+    const esPersonal = r?.vehiculo === 'Vehículo personal'
+    const km = esPersonal ? null : parseInt(el.querySelector('#regreso-km').value)
+    if (!esPersonal && (!km || km <= r.km_salida)) { alert('Ingresá un km de regreso válido'); return }
     const { error } = await supabase.from('recorridos').update({ estado: 'completado', km_regreso: km }).eq('id', activeRecorridoId)
     if (error) { alert('Error: ' + error.message); return }
-    if (r.vehiculo) await supabase.from('vehiculos').update({ en_uso: false, km_actual: km }).eq('nombre', r.vehiculo)
+    if (!esPersonal && r.vehiculo) await supabase.from('vehiculos').update({ en_uso: false, km_actual: km }).eq('nombre', r.vehiculo)
     modalRegreso.classList.remove('open')
     await load()
   }
@@ -172,6 +183,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       el.querySelector('#salida-title').textContent = 'Confirmar salida — ' + r.codigo
       el.querySelector('#salida-vehiculo').value = ''
       el.querySelector('#salida-km').value = ''
+      el.querySelector('#salida-km-wrap').style.display = 'block'
       modalSalida.classList.add('open')
       return
     }
@@ -180,12 +192,14 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       activeRecorridoId = parseInt(btn.dataset.regreso)
       const r = currentRecorridos.find(x => x.id === activeRecorridoId)
       if (!r) return
+      const esPersonal = r.vehiculo === 'Vehículo personal'
       el.querySelector('#regreso-resumen').innerHTML = `
         <strong style="color:#ccc">${r.codigo}</strong><br>
         Operario: ${r.operario} · Vehículo: ${r.vehiculo || '—'}<br>
         Salida: ${r.hora_salida || '—'} · Km salida: ${r.km_salida || '—'}`
       el.querySelector('#regreso-km').value = ''
       el.querySelector('#km-diff-preview').innerHTML = ''
+      el.querySelector('#regreso-km-wrap').style.display = esPersonal ? 'none' : 'block'
       modalRegreso.classList.add('open')
       return
     }
