@@ -245,20 +245,31 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     const { data: recData } = await query
     currentRecorridos = recData || []
 
+    // Traer pickings habilitados
     const { data: allPicking } = await supabase
       .from('picking')
-      .select('id, nota_pedido, cliente_nombre, cliente_id, documentacion, estado')
+      .select('id, nota_pedido, cliente_nombre, cliente_id, documentacion')
       .eq('estado', 'habilitado')
 
+    // Traer clientes por separado
     const clienteIds = [...new Set((allPicking || []).map(p => p.cliente_id).filter(Boolean))]
     let clientesMap = {}
     if (clienteIds.length > 0) {
       const { data: clientes } = await supabase
         .from('clientes')
-        .select('id, transporte_tipo, transporte_id, transportes(nombre, retira_deposito)')
+        .select('id, transporte_tipo, transporte_id')
         .in('id', clienteIds)
       ;(clientes || []).forEach(c => { clientesMap[c.id] = c })
     }
+
+    // Traer transportes que retiran en depósito por separado
+    const { data: transportesRetira } = await supabase
+      .from('transportes')
+      .select('id, nombre')
+      .eq('retira_deposito', true)
+    const idsRetiraDeposito = new Set((transportesRetira || []).map(t => t.id))
+    const transportesRetiraMap = {}
+    ;(transportesRetira || []).forEach(t => { transportesRetiraMap[t.id] = t.nombre })
 
     // Solo excluir pedidos en recorridos activos (no completados)
     const notasEnRecorrido = currentRecorridos
@@ -271,7 +282,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       if (!cliente) return false
       const tipo = cliente.transporte_tipo
       if (tipo === 'retira') return true
-      if (tipo === 'externo' && cliente.transportes?.retira_deposito) return true
+      if (tipo === 'externo' && idsRetiraDeposito.has(cliente.transporte_id)) return true
       return false
     })
 
@@ -293,7 +304,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
         const cliente = clientesMap[p.cliente_id]
         const tipo = cliente?.transporte_tipo
         const esRetiraCliente = tipo === 'retira'
-        const transporteNombre = cliente?.transportes?.nombre
+        const transporteNombre = transportesRetiraMap[cliente?.transporte_id]
         const label = esRetiraCliente ? 'Retira cliente' : `Retira ${transporteNombre || 'transporte'}`
         const color = esRetiraCliente ? '#4dd4d4' : '#d4a830'
         const borderColor = esRetiraCliente ? '#1a3636' : '#2c2400'
