@@ -133,6 +133,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       estado: 'en-ruta', hora_salida: hora, vehiculo, km_salida: km
     }).eq('id', activeRecorridoId)
     if (error) { alert('Error: ' + error.message); return }
+    await supabase.from('vehiculos').update({ en_uso: true }).eq('nombre', vehiculo)
     modalSalida.classList.remove('open')
     await load()
   }
@@ -143,6 +144,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     if (!km || !r || km <= r.km_salida) { alert('Ingresá un km de regreso válido'); return }
     const { error } = await supabase.from('recorridos').update({ estado: 'completado', km_regreso: km }).eq('id', activeRecorridoId)
     if (error) { alert('Error: ' + error.message); return }
+    if (r.vehiculo) await supabase.from('vehiculos').update({ en_uso: false, km_actual: km }).eq('nombre', r.vehiculo)
     modalRegreso.classList.remove('open')
     await load()
   }
