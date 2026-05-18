@@ -103,6 +103,17 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
         </div>
         <div class="modal-footer"><button class="btn-cancel" id="cancel-pk3">Cancelar</button><button class="btn-confirm" id="save-pk3">Confirmar documentación</button></div>
       </div>
+    </div>
+
+    <div class="modal-overlay" id="modal-pk-detalle">
+      <div class="modal"><div class="modal-top-bar" style="background:#5aadee"></div>
+        <div class="modal-header">
+          <span class="modal-title" id="pk-detalle-title">Detalle del picking</span>
+          <button class="modal-close" id="close-pk-detalle"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body" id="pk-detalle-body"></div>
+        <div class="modal-footer"><button class="btn-cancel" id="cancel-pk-detalle">Cerrar</button></div>
+      </div>
     </div>`
 
   let allPicking = []
@@ -128,6 +139,7 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
   const m1 = setupModal('modal-pk1', ['close-pk1','cancel-pk1'])
   const m2 = setupModal('modal-pk2', ['close-pk2','cancel-pk2'])
   const m3 = setupModal('modal-pk3', ['close-pk3','cancel-pk3'])
+  const mDetalle = setupModal('modal-pk-detalle', ['close-pk-detalle','cancel-pk-detalle'])
 
   el.querySelector('#s2-error-yn').onchange = () => {
     el.querySelector('#s2-err-count-wrap').style.display = el.querySelector('#s2-error-yn').value === 'si' ? 'block' : 'none'
@@ -173,14 +185,12 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     })
   }
 
-  // Cerrar dropdown al clickear afuera
   document.addEventListener('click', (e) => {
     if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) {
       dropdown.style.display = 'none'
     }
   })
 
-  // Calcular tiempo
   function calcularTiempo() {
     const inicio = el.querySelector('#s2-inicio').value
     const fin = el.querySelector('#s2-fin').value
@@ -214,6 +224,14 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     renderTable(allPicking)
   }
 
+  function formatTiempo(secs) {
+    if (!secs || secs === 0) return '—'
+    const h = Math.floor(secs / 3600)
+    const m = Math.floor((secs % 3600) / 60)
+    const s = secs % 60
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+  }
+
   function renderTable(lista) {
     el.querySelector('#picking-count').textContent = lista.length + ' registros'
     const wrap = el.querySelector('#picking-table-wrap')
@@ -221,10 +239,7 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     wrap.innerHTML = `<table class="data-table">
       <thead><tr><th>Nota</th><th>Cliente</th><th>Estado</th><th>Documentación</th><th>Líneas</th><th>Operario arma</th><th>Tiempo</th><th>Fecha</th><th></th></tr></thead>
       <tbody>${lista.map(p => {
-        const h = Math.floor((p.timer_secs||0)/3600)
-        const m = Math.floor(((p.timer_secs||0)%3600)/60)
-        const s = (p.timer_secs||0)%60
-        const tiempo = p.timer_secs > 0 ? `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}` : '<span style="color:#2a2a2a">—</span>'
+        const tiempo = formatTiempo(p.timer_secs)
         return `<tr>
           <td style="font-family:'DM Mono',monospace;color:#555;font-size:12px">${p.nota_pedido}</td>
           <td style="color:#ccc">${p.cliente_nombre}</td>
@@ -234,20 +249,55 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
           <td style="color:#666">${p.operario_arma || '<span style="color:#2a2a2a">—</span>'}</td>
           <td style="font-family:'DM Mono',monospace;color:#d4a830;font-size:12px">${tiempo}</td>
           <td style="font-size:11px;color:#444">${p.fecha || new Date(p.hora_registro).toLocaleDateString('es-AR')}</td>
-          <td>${!isObserver ? `<button class="btn-sm primary" data-detail="${p.id}"><i class="ti ti-eye"></i></button>` : ''}</td>
+          <td><button class="btn-sm primary" data-id="${p.id}"><i class="ti ti-eye"></i></button></td>
         </tr>`}).join('')}
       </tbody></table>`
-    if (!isObserver) {
-      wrap.querySelectorAll('[data-detail]').forEach(btn => { btn.onclick = () => openDetail(parseInt(btn.dataset.detail)) })
-    }
+
+    wrap.querySelectorAll('[data-id]').forEach(btn => {
+      btn.onclick = () => openAction(parseInt(btn.dataset.id))
+    })
   }
 
-  function openDetail(id) {
+  function openAction(id) {
     const p = allPicking.find(x => x.id === id)
     if (!p) return
     editingId = id
-    if (p.estado === 'preparacion') { openStep2(p) }
-    else if (p.estado === 'armado') { openStep3(p) }
+
+    // Si está habilitado o tiene info completa, mostrar detalle
+    if (p.estado === 'habilitado' || (p.estado === 'armado' && p.operario_arma)) {
+      // Si está en armado sin doc, abrir paso 3
+      if (p.estado === 'armado') { openStep3(p); return }
+      // Si está habilitado, mostrar detalle
+      mostrarDetallePicking(p)
+    } else if (p.estado === 'preparacion') {
+      openStep2(p)
+    } else if (p.estado === 'armado') {
+      openStep3(p)
+    } else {
+      mostrarDetallePicking(p)
+    }
+  }
+
+  function mostrarDetallePicking(p) {
+    el.querySelector('#pk-detalle-title').textContent = p.nota_pedido + ' — ' + p.cliente_nombre
+    const lpm = p.timer_secs > 0 ? (p.lineas / (p.timer_secs / 60)).toFixed(1) : '—'
+    el.querySelector('#pk-detalle-body').innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Estado</div><div>${ESTADO_HTML[p.estado] || p.estado}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Líneas</div><div style="font-family:'DM Mono',monospace;color:#ccc;font-size:18px">${p.lineas}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Operario arma</div><div style="color:#ccc">${p.operario_arma || '—'}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Operario controla</div><div style="color:#ccc">${p.operario_controla || '—'}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Hora inicio</div><div style="font-family:'DM Mono',monospace;color:#888">${p.hora_inicio || '—'}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Hora fin</div><div style="font-family:'DM Mono',monospace;color:#888">${p.hora_fin || '—'}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Tiempo total</div><div style="font-family:'DM Mono',monospace;color:#d4a830">${formatTiempo(p.timer_secs)}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Líneas/min</div><div style="font-family:'DM Mono',monospace;color:#5aadee">${lpm}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Documentación</div><div>${p.documentacion ? `<span class="badge badge-armado" style="font-size:9px">${DOC_LABEL[p.documentacion]}</span>` : '<span style="color:#2a2a2a">—</span>'}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Errores</div><div style="font-family:'DM Mono',monospace;color:${p.error_count > 0 ? '#ff6b2b' : '#2a2a2a'}">${p.error_count || 0}</div></div>
+      </div>
+      <div style="font-size:11px;color:#333;border-top:1px solid #1a1a1a;padding-top:10px">
+        Registrado: ${new Date(p.hora_registro).toLocaleString('es-AR')}
+      </div>`
+    mDetalle.classList.add('open')
   }
 
   function openStep2(p) {
@@ -296,7 +346,6 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
 
     let clienteId = clienteIdExistente || null
     if (!clienteId) {
-      // Crear cliente nuevo
       const { data } = await supabase.from('clientes').insert({ nombre: clienteNombre }).select().single()
       clienteId = data?.id
       clientes.push({ id: clienteId, nombre: clienteNombre, direccion: null })
