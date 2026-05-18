@@ -227,6 +227,9 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       const fecha = new Date().toISOString().split('T')[0]
       const { data: pk } = await supabase.from('picking').select('nota_pedido, cliente_nombre, documentacion').eq('id', pickingId).single()
       if (!pk) return
+      // Verificar que no esté ya retirado
+      const { data: yaRetirado } = await supabase.from('retiras').select('id').eq('nota_pedido', pk.nota_pedido).single()
+      if (yaRetirado) { alert('Este pedido ya fue marcado como retirado anteriormente'); return }
       await supabase.from('retiras').insert({
         nota_pedido: pk.nota_pedido,
         cliente_nombre: pk.cliente_nombre,
@@ -240,18 +243,21 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
   })
 
   async function load() {
-    let query = supabase.from('recorridos').select(`*, recorrido_pedidos(*)`).order('created_at', { ascending: false })
+    const today = new Date().toISOString().split('T')[0]
+
+    // Recorridos solo de hoy
+    let query = supabase.from('recorridos').select(`*, recorrido_pedidos(*)`).eq('fecha', today).order('created_at', { ascending: false })
     if (currentUser.rol === 'operario') query = query.eq('operario', currentUser.nombre)
     const { data: recData } = await query
     currentRecorridos = recData || []
 
-    // Traer pickings habilitados
+    // Pickings habilitados
     const { data: allPicking } = await supabase
       .from('picking')
       .select('id, nota_pedido, cliente_nombre, cliente_id, documentacion')
       .eq('estado', 'habilitado')
 
-    // Traer clientes por separado
+    // Clientes por separado
     const clienteIds = [...new Set((allPicking || []).map(p => p.cliente_id).filter(Boolean))]
     let clientesMap = {}
     if (clienteIds.length > 0) {
@@ -262,7 +268,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       ;(clientes || []).forEach(c => { clientesMap[c.id] = c })
     }
 
-    // Traer transportes que retiran en depósito por separado
+    // Transportes que retiran en depósito
     const { data: transportesRetira } = await supabase
       .from('transportes')
       .select('id, nombre')
@@ -271,13 +277,18 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     const transportesRetiraMap = {}
     ;(transportesRetira || []).forEach(t => { transportesRetiraMap[t.id] = t.nombre })
 
-    // Solo excluir pedidos en recorridos activos (no completados)
+    // Notas en recorridos activos (no completados)
     const notasEnRecorrido = currentRecorridos
       .filter(r => r.estado !== 'completado')
       .flatMap(r => r.recorrido_pedidos.map(p => p.nota_pedido))
 
+    // TODAS las retiras históricas — para no mostrar pedidos ya retirados nunca más
+    const { data: todasRetiras } = await supabase.from('retiras').select('nota_pedido')
+    const notasYaRetiradas = new Set((todasRetiras || []).map(r => r.nota_pedido))
+
     const pedidosRetiro = (allPicking || []).filter(p => {
       if (notasEnRecorrido.includes(p.nota_pedido)) return false
+      if (notasYaRetiradas.has(p.nota_pedido)) return false
       const cliente = clientesMap[p.cliente_id]
       if (!cliente) return false
       const tipo = cliente.transporte_tipo
@@ -286,10 +297,8 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       return false
     })
 
-    const today = new Date().toISOString().split('T')[0]
+    // Retirados hoy para mostrar en la sección "Retirados hoy"
     const { data: retirasHoy } = await supabase.from('retiras').select('*').eq('fecha', today)
-    const notasYaRetiradas = (retirasHoy || []).map(r => r.nota_pedido)
-    const pendientesRetiro = pedidosRetiro.filter(p => !notasYaRetiradas.includes(p.nota_pedido))
     const despachadosRetiro = retirasHoy || []
 
     const content = el.querySelector('#despacho-content')
@@ -297,10 +306,10 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
 
     let html = ''
 
-    // RETIROS PENDIENTES PRIMERO
-    if (pendientesRetiro.length > 0) {
+    // RETIROS PENDIENTES
+    if (pedidosRetiro.length > 0) {
       html += `<div class="section-label" style="margin-top:0">Retiros pendientes</div>`
-      html += pendientesRetiro.map(p => {
+      html += pedidosRetiro.map(p => {
         const cliente = clientesMap[p.cliente_id]
         const tipo = cliente?.transporte_tipo
         const esRetiraCliente = tipo === 'retira'
@@ -320,7 +329,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
 
     // RETIRADOS HOY
     if (despachadosRetiro.length > 0) {
-      html += `<div class="section-label" style="margin-top:${pendientesRetiro.length > 0 ? '24px' : '0'}">Retirados hoy</div>`
+      html += `<div class="section-label" style="margin-top:${pedidosRetiro.length > 0 ? '24px' : '0'}">Retirados hoy</div>`
       html += despachadosRetiro.map(r => `
         <div style="background:#0d1e0d;border:1px solid #1a361a;padding:12px 16px;margin-bottom:8px;border-radius:2px;display:flex;align-items:center;gap:12px;opacity:.8">
           <div style="flex:1">
@@ -331,9 +340,9 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
         </div>`).join('')
     }
 
-    // RECORRIDOS
+    // RECORRIDOS DE HOY
     if (currentRecorridos.length > 0) {
-      html += `<div class="section-label" style="margin-top:${pendientesRetiro.length > 0 || despachadosRetiro.length > 0 ? '24px' : '0'}">Recorridos</div>`
+      html += `<div class="section-label" style="margin-top:${pedidosRetiro.length > 0 || despachadosRetiro.length > 0 ? '24px' : '0'}">Recorridos de hoy</div>`
       html += currentRecorridos.map(r => {
         const ent = r.recorrido_pedidos.filter(p => p.estado === 'entregado').length
         const tot = r.recorrido_pedidos.length
@@ -373,7 +382,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       }).join('')
     }
 
-    if (currentRecorridos.length === 0 && pendientesRetiro.length === 0 && despachadosRetiro.length === 0) {
+    if (currentRecorridos.length === 0 && pedidosRetiro.length === 0 && despachadosRetiro.length === 0) {
       html = '<div class="empty-state" style="padding:60px">Sin actividad de despacho hoy</div>'
     }
 
