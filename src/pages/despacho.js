@@ -274,8 +274,15 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     const transportesRetiraMap = {}
     ;(transportesRetira || []).forEach(t => { transportesRetiraMap[t.id] = t.nombre })
 
-    // Notas en recorridos activos
-    const notasEnRecorrido = currentRecorridos
+    // Notas ya entregadas históricamente en recorridos
+    const { data: todosEntregados } = await supabase
+      .from('recorrido_pedidos')
+      .select('nota_pedido')
+      .eq('estado', 'entregado')
+    const notasYaEntregadas = new Set((todosEntregados || []).map(p => p.nota_pedido))
+
+    // Notas en recorridos activos (pendiente o en-ruta)
+    const notasEnRecorridoActivo = currentRecorridos
       .filter(r => r.estado !== 'completado')
       .flatMap(r => r.recorrido_pedidos.map(p => p.nota_pedido))
 
@@ -288,11 +295,15 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     const entregasPendientes = []
 
     ;(allPicking || []).forEach(p => {
-      if (notasEnRecorrido.includes(p.nota_pedido)) return
+      // Excluir si ya fue entregado, está en recorrido activo o ya fue retirado
+      if (notasYaEntregadas.has(p.nota_pedido)) return
+      if (notasEnRecorridoActivo.includes(p.nota_pedido)) return
       if (notasYaRetiradas.has(p.nota_pedido)) return
+
       const cliente = clientesMap[p.cliente_id]
       if (!cliente) return
       const tipo = cliente.transporte_tipo
+
       if (tipo === 'retira') {
         retirosPendientes.push({ ...p, _label: 'Retira cliente', _color: '#4dd4d4', _border: '#1a3636' })
       } else if (tipo === 'externo' && idsRetiraDeposito.has(cliente.transporte_id)) {
@@ -311,7 +322,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
 
     let html = ''
 
-    // ENTREGAS PENDIENTES (sin recorrido asignado)
+    // ENTREGAS PENDIENTES
     if (entregasPendientes.length > 0) {
       html += `<div class="section-label" style="margin-top:0">Entregas pendientes de recorrido</div>`
       html += entregasPendientes.map(p => `
