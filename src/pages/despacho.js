@@ -227,7 +227,6 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       const fecha = new Date().toISOString().split('T')[0]
       const { data: pk } = await supabase.from('picking').select('nota_pedido, cliente_nombre, documentacion').eq('id', pickingId).single()
       if (!pk) return
-      // Verificar que no esté ya retirado
       const { data: yaRetirado } = await supabase.from('retiras').select('id').eq('nota_pedido', pk.nota_pedido).single()
       if (yaRetirado) { alert('Este pedido ya fue marcado como retirado anteriormente'); return }
       await supabase.from('retiras').insert({
@@ -251,7 +250,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     const { data: recData } = await query
     currentRecorridos = recData || []
 
-    // Pickings habilitados
+    // Todos los pickings habilitados
     const { data: allPicking } = await supabase
       .from('picking')
       .select('id, nota_pedido, cliente_nombre, cliente_id, documentacion')
@@ -270,66 +269,77 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
 
     // Transportes que retiran en depósito
     const { data: transportesRetira } = await supabase
-      .from('transportes')
-      .select('id, nombre')
-      .eq('retira_deposito', true)
+      .from('transportes').select('id, nombre').eq('retira_deposito', true)
     const idsRetiraDeposito = new Set((transportesRetira || []).map(t => t.id))
     const transportesRetiraMap = {}
     ;(transportesRetira || []).forEach(t => { transportesRetiraMap[t.id] = t.nombre })
 
-    // Notas en recorridos activos (no completados)
+    // Notas en recorridos activos
     const notasEnRecorrido = currentRecorridos
       .filter(r => r.estado !== 'completado')
       .flatMap(r => r.recorrido_pedidos.map(p => p.nota_pedido))
 
-    // TODAS las retiras históricas — para no mostrar pedidos ya retirados nunca más
+    // Todas las retiras históricas
     const { data: todasRetiras } = await supabase.from('retiras').select('nota_pedido')
     const notasYaRetiradas = new Set((todasRetiras || []).map(r => r.nota_pedido))
 
-    const pedidosRetiro = (allPicking || []).filter(p => {
-      if (notasEnRecorrido.includes(p.nota_pedido)) return false
-      if (notasYaRetiradas.has(p.nota_pedido)) return false
+    // Separar retiros y entregas pendientes
+    const retirosPendientes = []
+    const entregasPendientes = []
+
+    ;(allPicking || []).forEach(p => {
+      if (notasEnRecorrido.includes(p.nota_pedido)) return
+      if (notasYaRetiradas.has(p.nota_pedido)) return
       const cliente = clientesMap[p.cliente_id]
-      if (!cliente) return false
+      if (!cliente) return
       const tipo = cliente.transporte_tipo
-      if (tipo === 'retira') return true
-      if (tipo === 'externo' && idsRetiraDeposito.has(cliente.transporte_id)) return true
-      return false
+      if (tipo === 'retira') {
+        retirosPendientes.push({ ...p, _label: 'Retira cliente', _color: '#4dd4d4', _border: '#1a3636' })
+      } else if (tipo === 'externo' && idsRetiraDeposito.has(cliente.transporte_id)) {
+        retirosPendientes.push({ ...p, _label: `Retira ${transportesRetiraMap[cliente.transporte_id] || 'transporte'}`, _color: '#d4a830', _border: '#2c2400' })
+      } else if (tipo === 'pyb' || tipo === 'externo') {
+        entregasPendientes.push({ ...p, _label: tipo === 'pyb' ? 'Entrega P&B' : 'Transp. ext.', _color: '#a78bfa', _border: '#2d1a52' })
+      }
     })
 
-    // Retirados hoy para mostrar en la sección "Retirados hoy"
     const { data: retirasHoy } = await supabase.from('retiras').select('*').eq('fecha', today)
     const despachadosRetiro = retirasHoy || []
 
     const content = el.querySelector('#despacho-content')
-    el.querySelector('#despacho-sub').textContent = currentRecorridos.length + ' recorrido' + (currentRecorridos.length !== 1 ? 's' : '')
+    const totalPendientes = retirosPendientes.length + entregasPendientes.length
+    el.querySelector('#despacho-sub').textContent = `${currentRecorridos.length} recorrido${currentRecorridos.length !== 1 ? 's' : ''} · ${totalPendientes} pendiente${totalPendientes !== 1 ? 's' : ''}`
 
     let html = ''
 
-    // RETIROS PENDIENTES
-    if (pedidosRetiro.length > 0) {
-      html += `<div class="section-label" style="margin-top:0">Retiros pendientes</div>`
-      html += pedidosRetiro.map(p => {
-        const cliente = clientesMap[p.cliente_id]
-        const tipo = cliente?.transporte_tipo
-        const esRetiraCliente = tipo === 'retira'
-        const transporteNombre = transportesRetiraMap[cliente?.transporte_id]
-        const label = esRetiraCliente ? 'Retira cliente' : `Retira ${transporteNombre || 'transporte'}`
-        const color = esRetiraCliente ? '#4dd4d4' : '#d4a830'
-        const borderColor = esRetiraCliente ? '#1a3636' : '#2c2400'
-        return `<div style="background:#111;border:1px solid ${borderColor};padding:14px 16px;margin-bottom:8px;border-radius:2px;display:flex;align-items:center;gap:12px;">
+    // ENTREGAS PENDIENTES (sin recorrido asignado)
+    if (entregasPendientes.length > 0) {
+      html += `<div class="section-label" style="margin-top:0">Entregas pendientes de recorrido</div>`
+      html += entregasPendientes.map(p => `
+        <div style="background:#111;border:1px solid ${p._border};padding:14px 16px;margin-bottom:8px;border-radius:2px;display:flex;align-items:center;gap:12px;">
           <div style="flex:1">
-            <div style="font-size:13px;color:#ccc;font-weight:500">${p.cliente_nombre} <span style="font-size:10px;color:${color};margin-left:6px">${label}</span></div>
+            <div style="font-size:13px;color:#ccc;font-weight:500">${p.cliente_nombre} <span style="font-size:10px;color:${p._color};margin-left:6px">${p._label}</span></div>
+            <div style="font-size:11px;color:#444;margin-top:2px">${p.nota_pedido} · Doc: ${p.documentacion === 'fac_remito' ? 'Fac. y Remito' : p.documentacion === 'fac_etiqueta' ? 'Fac. y Etiqueta' : p.documentacion || '—'}</div>
+          </div>
+          <span style="font-size:10px;color:#444;letter-spacing:1px">Sin recorrido</span>
+        </div>`).join('')
+    }
+
+    // RETIROS PENDIENTES
+    if (retirosPendientes.length > 0) {
+      html += `<div class="section-label" style="margin-top:${entregasPendientes.length > 0 ? '24px' : '0'}">Retiros pendientes</div>`
+      html += retirosPendientes.map(p => `
+        <div style="background:#111;border:1px solid ${p._border};padding:14px 16px;margin-bottom:8px;border-radius:2px;display:flex;align-items:center;gap:12px;">
+          <div style="flex:1">
+            <div style="font-size:13px;color:#ccc;font-weight:500">${p.cliente_nombre} <span style="font-size:10px;color:${p._color};margin-left:6px">${p._label}</span></div>
             <div style="font-size:11px;color:#444;margin-top:2px">${p.nota_pedido} · Doc: ${p.documentacion === 'fac_remito' ? 'Fac. y Remito' : p.documentacion === 'fac_etiqueta' ? 'Fac. y Etiqueta' : p.documentacion || '—'}</div>
           </div>
           ${!isObserver ? `<button class="btn-sm green" data-marcar-retiro="${p.id}"><i class="ti ti-check"></i> Marcar retirado</button>` : ''}
-        </div>`
-      }).join('')
+        </div>`).join('')
     }
 
     // RETIRADOS HOY
     if (despachadosRetiro.length > 0) {
-      html += `<div class="section-label" style="margin-top:${pedidosRetiro.length > 0 ? '24px' : '0'}">Retirados hoy</div>`
+      html += `<div class="section-label" style="margin-top:${retirosPendientes.length > 0 || entregasPendientes.length > 0 ? '24px' : '0'}">Retirados hoy</div>`
       html += despachadosRetiro.map(r => `
         <div style="background:#0d1e0d;border:1px solid #1a361a;padding:12px 16px;margin-bottom:8px;border-radius:2px;display:flex;align-items:center;gap:12px;opacity:.8">
           <div style="flex:1">
@@ -342,7 +352,8 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
 
     // RECORRIDOS DE HOY
     if (currentRecorridos.length > 0) {
-      html += `<div class="section-label" style="margin-top:${pedidosRetiro.length > 0 || despachadosRetiro.length > 0 ? '24px' : '0'}">Recorridos de hoy</div>`
+      const hasAbove = entregasPendientes.length > 0 || retirosPendientes.length > 0 || despachadosRetiro.length > 0
+      html += `<div class="section-label" style="margin-top:${hasAbove ? '24px' : '0'}">Recorridos de hoy</div>`
       html += currentRecorridos.map(r => {
         const ent = r.recorrido_pedidos.filter(p => p.estado === 'entregado').length
         const tot = r.recorrido_pedidos.length
@@ -382,7 +393,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       }).join('')
     }
 
-    if (currentRecorridos.length === 0 && pedidosRetiro.length === 0 && despachadosRetiro.length === 0) {
+    if (currentRecorridos.length === 0 && retirosPendientes.length === 0 && entregasPendientes.length === 0 && despachadosRetiro.length === 0) {
       html = '<div class="empty-state" style="padding:60px">Sin actividad de despacho hoy</div>'
     }
 
