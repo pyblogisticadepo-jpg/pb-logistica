@@ -155,6 +155,11 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     const { error } = await supabase.from('recorridos').update({ estado: 'completado', km_regreso: km }).eq('id', activeRecorridoId)
     if (error) { alert('Error: ' + error.message); return }
     if (!esPersonal && r.vehiculo) await supabase.from('vehiculos').update({ en_uso: false, km_actual: km }).eq('nombre', r.vehiculo)
+    // Los pedidos rechazados (pendiente con observaciones) vuelven a habilitado
+    const rechazados = r.recorrido_pedidos.filter(p => p.estado === 'pendiente' && p.observaciones)
+    for (const p of rechazados) {
+      await supabase.from('picking').update({ estado: 'habilitado' }).eq('nota_pedido', p.nota_pedido)
+    }
     modalRegreso.classList.remove('open')
     await load()
   }
@@ -192,10 +197,12 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       const r = currentRecorridos.find(x => x.id === activeRecorridoId)
       if (!r) return
       const esPersonal = r.vehiculo === 'Vehículo personal'
+      const rechazados = r.recorrido_pedidos.filter(p => p.estado === 'pendiente' && p.observaciones).length
       el.querySelector('#regreso-resumen').innerHTML = `
         <strong style="color:#ccc">${r.codigo}</strong><br>
         Operario: ${r.operario} · Vehículo: ${r.vehiculo || '—'}<br>
-        Salida: ${r.hora_salida || '—'} · Km salida: ${r.km_salida || '—'}`
+        Salida: ${r.hora_salida || '—'} · Km salida: ${r.km_salida || '—'}
+        ${rechazados > 0 ? `<br><span style="color:#e05555;font-size:12px"><i class="ti ti-alert-circle"></i> ${rechazados} pedido${rechazados > 1 ? 's' : ''} no entregado${rechazados > 1 ? 's' : ''} — volverán a entregas pendientes</span>` : ''}`
       el.querySelector('#regreso-km').value = ''
       el.querySelector('#km-diff-preview').innerHTML = ''
       el.querySelector('#regreso-km-wrap').style.display = esPersonal ? 'none' : 'block'
@@ -244,19 +251,16 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
   async function load() {
     const today = new Date().toISOString().split('T')[0]
 
-    // Recorridos solo de hoy
     let query = supabase.from('recorridos').select(`*, recorrido_pedidos(*)`).eq('fecha', today).order('created_at', { ascending: false })
     if (currentUser.rol === 'operario') query = query.eq('operario', currentUser.nombre)
     const { data: recData } = await query
     currentRecorridos = recData || []
 
-    // Todos los pickings habilitados
     const { data: allPicking } = await supabase
       .from('picking')
       .select('id, nota_pedido, cliente_nombre, cliente_id, documentacion')
       .eq('estado', 'habilitado')
 
-    // Clientes por separado
     const clienteIds = [...new Set((allPicking || []).map(p => p.cliente_id).filter(Boolean))]
     let clientesMap = {}
     if (clienteIds.length > 0) {
@@ -267,35 +271,27 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       ;(clientes || []).forEach(c => { clientesMap[c.id] = c })
     }
 
-    // Transportes que retiran en depósito
     const { data: transportesRetira } = await supabase
       .from('transportes').select('id, nombre').eq('retira_deposito', true)
     const idsRetiraDeposito = new Set((transportesRetira || []).map(t => t.id))
     const transportesRetiraMap = {}
     ;(transportesRetira || []).forEach(t => { transportesRetiraMap[t.id] = t.nombre })
 
-    // Notas ya entregadas históricamente en recorridos
     const { data: todosEntregados } = await supabase
-      .from('recorrido_pedidos')
-      .select('nota_pedido')
-      .eq('estado', 'entregado')
+      .from('recorrido_pedidos').select('nota_pedido').eq('estado', 'entregado')
     const notasYaEntregadas = new Set((todosEntregados || []).map(p => p.nota_pedido))
 
-    // Notas en recorridos activos (pendiente o en-ruta)
     const notasEnRecorridoActivo = currentRecorridos
       .filter(r => r.estado !== 'completado')
       .flatMap(r => r.recorrido_pedidos.map(p => p.nota_pedido))
 
-    // Todas las retiras históricas
     const { data: todasRetiras } = await supabase.from('retiras').select('nota_pedido')
     const notasYaRetiradas = new Set((todasRetiras || []).map(r => r.nota_pedido))
 
-    // Separar retiros y entregas pendientes
     const retirosPendientes = []
     const entregasPendientes = []
 
     ;(allPicking || []).forEach(p => {
-      // Excluir si ya fue entregado, está en recorrido activo o ya fue retirado
       if (notasYaEntregadas.has(p.nota_pedido)) return
       if (notasEnRecorridoActivo.includes(p.nota_pedido)) return
       if (notasYaRetiradas.has(p.nota_pedido)) return
@@ -322,7 +318,6 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
 
     let html = ''
 
-    // ENTREGAS PENDIENTES
     if (entregasPendientes.length > 0) {
       html += `<div class="section-label" style="margin-top:0">Entregas pendientes de recorrido</div>`
       html += entregasPendientes.map(p => `
@@ -335,7 +330,6 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
         </div>`).join('')
     }
 
-    // RETIROS PENDIENTES
     if (retirosPendientes.length > 0) {
       html += `<div class="section-label" style="margin-top:${entregasPendientes.length > 0 ? '24px' : '0'}">Retiros pendientes</div>`
       html += retirosPendientes.map(p => `
@@ -348,7 +342,6 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
         </div>`).join('')
     }
 
-    // RETIRADOS HOY
     if (despachadosRetiro.length > 0) {
       html += `<div class="section-label" style="margin-top:${retirosPendientes.length > 0 || entregasPendientes.length > 0 ? '24px' : '0'}">Retirados hoy</div>`
       html += despachadosRetiro.map(r => `
@@ -361,29 +354,30 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
         </div>`).join('')
     }
 
-    // RECORRIDOS DE HOY
     if (currentRecorridos.length > 0) {
       const hasAbove = entregasPendientes.length > 0 || retirosPendientes.length > 0 || despachadosRetiro.length > 0
       html += `<div class="section-label" style="margin-top:${hasAbove ? '24px' : '0'}">Recorridos de hoy</div>`
       html += currentRecorridos.map(r => {
         const ent = r.recorrido_pedidos.filter(p => p.estado === 'entregado').length
         const tot = r.recorrido_pedidos.length
+        const rechazados = r.recorrido_pedidos.filter(p => p.estado === 'pendiente' && p.observaciones).length
+        const listoParaRegresar = r.estado === 'en-ruta' && (ent + rechazados === tot) && tot > 0
         const estBadge = r.estado === 'en-ruta' ? '<span class="badge badge-en-ruta">En ruta</span>' : r.estado === 'completado' ? '<span class="badge badge-completado">Completado</span>' : '<span class="badge badge-pendiente">Pendiente</span>'
         return `<div style="background:#111;border:1px solid #1e1e1e;padding:16px 18px;margin-bottom:16px;border-radius:2px;">
           <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px">
             <div>
               <div style="font-family:'DM Mono',monospace;font-size:14px;font-weight:600;color:#fff;margin-bottom:4px">${r.codigo}</div>
-              <div style="font-size:12px;color:#444">${estBadge} · Operario: <strong style="color:#666">${r.operario}</strong> · ${ent}/${tot} entregas${r.vehiculo ? ' · ' + r.vehiculo : ''}</div>
+              <div style="font-size:12px;color:#444">${estBadge} · Operario: <strong style="color:#666">${r.operario}</strong> · ${ent}/${tot} entregas${rechazados > 0 ? ` · <span style="color:#e05555">${rechazados} rechazado${rechazados > 1 ? 's' : ''}</span>` : ''}${r.vehiculo ? ' · ' + r.vehiculo : ''}</div>
               <div style="font-size:11px;color:#333;margin-top:3px">Km salida: <span style="font-family:'DM Mono',monospace">${r.km_salida || '—'}</span> · Km regreso: <span style="font-family:'DM Mono',monospace">${r.km_regreso || '—'}</span>${r.km_salida && r.km_regreso ? ' · <span style="color:#52c452;font-family:\'DM Mono\',monospace">' + (r.km_regreso - r.km_salida) + ' km</span>' : ''}${r.hora_salida ? ' · Salida: ' + r.hora_salida : ''}</div>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               ${!isObserver && r.estado === 'pendiente' ? `<button class="btn-sm orange" data-salida="${r.id}"><i class="ti ti-truck-delivery"></i> Confirmar salida</button>` : ''}
-              ${!isObserver && r.estado === 'en-ruta' && ent === tot && tot > 0 ? `<button class="btn-sm green" data-regreso="${r.id}"><i class="ti ti-home"></i> Confirmar regreso</button>` : ''}
+              ${!isObserver && listoParaRegresar ? `<button class="btn-sm green" data-regreso="${r.id}"><i class="ti ti-home"></i> Confirmar regreso</button>` : ''}
             </div>
           </div>
           ${tot === 0 ? '<div style="color:#2a2a2a;font-size:12px;padding:8px 0">Sin pedidos en este recorrido</div>' :
           r.recorrido_pedidos.map(p => `
-            <div class="pedido-card ${p.estado === 'entregado' ? 'entregado' : ''}">
+            <div class="pedido-card ${p.estado === 'entregado' ? 'entregado' : p.observaciones ? 'rechazado' : ''}">
               <div class="pedido-card-header">
                 <div class="pedido-orden ${p.tipo || 'pyb'}">${p.orden}</div>
                 <div style="flex:1">
@@ -392,10 +386,11 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
                   ${p.observaciones ? `<div style="font-size:11px;color:#e05555;margin-top:3px"><i class="ti ti-alert-circle" style="font-size:10px"></i> ${p.observaciones}</div>` : ''}
                 </div>
                 <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
-                  ${!isObserver && p.estado === 'pendiente' && r.estado === 'en-ruta' ? `
+                  ${!isObserver && p.estado === 'pendiente' && !p.observaciones && r.estado === 'en-ruta' ? `
                     <button class="btn-sm green" data-entregar="${p.id}"><i class="ti ti-check"></i> Entregado</button>
                     <button class="btn-sm" style="border-color:#3a1a1a;color:#e05555" data-no-entregar="${p.id}"><i class="ti ti-x"></i> No entregado</button>
-                  ` : p.estado === 'entregado' ? `<span class="badge badge-ok" style="font-size:9px">✓ ${p.hora_entrega || ''}</span>` : ''}
+                  ` : p.estado === 'entregado' ? `<span class="badge badge-ok" style="font-size:9px">✓ ${p.hora_entrega || ''}</span>` 
+                    : p.observaciones ? `<span class="badge" style="background:#2a0a0a;color:#e05555;font-size:9px">✗ Rechazado</span>` : ''}
                 </div>
               </div>
               ${p.estado === 'entregado' ? `<div class="pedido-entregado-info"><span style="color:#52c452;font-family:'DM Mono',monospace;font-size:11px"><i class="ti ti-clock" style="font-size:10px"></i> Entregado ${p.hora_entrega || ''}</span></div>` : ''}
