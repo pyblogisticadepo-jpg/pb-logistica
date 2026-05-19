@@ -5,7 +5,7 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
       ${!isObserver ? '<button class="btn-add" id="btn-new-picking"><i class="ti ti-plus"></i> Nuevo picking</button>' : ''}
     </div>
     <div class="search-bar">
-      <input class="search-input" id="pk-search" placeholder="Buscar por cliente o nota...">
+      <input class="search-input" id="pk-search" placeholder="Buscar por cliente, nota o código...">
       <select class="filter-select" id="pk-filter">
         <option value="">Todos</option>
         <option value="preparacion">En preparación</option>
@@ -27,7 +27,7 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
             <div class="step pending"><div class="step-num">3</div><span>Documentación</span></div>
           </div>
           <div class="form-row-2">
-            <div><label class="form-label">Nota de pedido <span class="req">*</span></label><input class="form-input" id="s1-nota" placeholder="Ej: 10050"></div>
+            <div><label class="form-label">NP del sistema <span class="req">*</span></label><input class="form-input" id="s1-nota" placeholder="Ej: 22478"></div>
             <div><label class="form-label">Líneas <span class="req">*</span></label><input class="form-input" id="s1-lineas" type="number" min="1" placeholder="Ej: 12"></div>
           </div>
           <div class="form-row">
@@ -148,7 +148,6 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     el.querySelector('#s3-warn').style.display = el.querySelector('#s3-doc').value === 'remito' ? 'block' : 'none'
   }
 
-  // Buscador de clientes
   const searchInput = el.querySelector('#s1-cliente-search')
   const dropdown = el.querySelector('#s1-cliente-dropdown')
 
@@ -157,9 +156,7 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     clienteSeleccionado = null
     el.querySelector('#s1-cliente-id').value = ''
     el.querySelector('#s1-cliente-nombre').value = searchInput.value
-
     if (q.length < 1) { dropdown.style.display = 'none'; return }
-
     const filtrados = clientes.filter(c => c.nombre.toLowerCase().includes(q)).slice(0, 8)
     if (filtrados.length === 0) {
       dropdown.innerHTML = `<div style="padding:10px 14px;font-size:12px;color:#444">No encontrado — se creará como nuevo cliente</div>`
@@ -171,7 +168,6 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
         </div>`).join('')
     }
     dropdown.style.display = 'block'
-
     dropdown.querySelectorAll('[data-id]').forEach(item => {
       item.onmouseenter = () => item.style.background = '#1a1a1a'
       item.onmouseleave = () => item.style.background = 'transparent'
@@ -186,9 +182,7 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
   }
 
   document.addEventListener('click', (e) => {
-    if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) {
-      dropdown.style.display = 'none'
-    }
+    if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) dropdown.style.display = 'none'
   })
 
   function calcularTiempo() {
@@ -201,9 +195,7 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     const [fh, fm] = fin.split(':').map(Number)
     let secs = (fh * 3600 + fm * 60) - (ih * 3600 + im * 60)
     if (secs <= 0) { div.style.display = 'none'; return 0 }
-    const h = Math.floor(secs / 3600)
-    const m = Math.floor((secs % 3600) / 60)
-    const s = secs % 60
+    const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60
     label.textContent = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
     div.style.display = 'block'
     return secs
@@ -211,6 +203,12 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
 
   el.querySelector('#s2-inicio').oninput = calcularTiempo
   el.querySelector('#s2-fin').oninput = calcularTiempo
+
+  async function generarCodigoInterno() {
+    const { data } = await supabase.from('picking').select('id').order('id', { ascending: false }).limit(1)
+    const lastId = data?.[0]?.id || 0
+    return 'PYB-' + String(lastId + 1).padStart(4, '0')
+  }
 
   async function load() {
     const [{ data: pk }, { data: cl }, { data: pr }] = await Promise.all([
@@ -226,9 +224,7 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
 
   function formatTiempo(secs) {
     if (!secs || secs === 0) return '—'
-    const h = Math.floor(secs / 3600)
-    const m = Math.floor((secs % 3600) / 60)
-    const s = secs % 60
+    const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60
     return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
   }
 
@@ -237,22 +233,22 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     const wrap = el.querySelector('#picking-table-wrap')
     if (lista.length === 0) { wrap.innerHTML = '<div class="empty-state">Sin registros</div>'; return }
     wrap.innerHTML = `<table class="data-table">
-      <thead><tr><th>Nota</th><th>Cliente</th><th>Estado</th><th>Documentación</th><th>Líneas</th><th>Operario arma</th><th>Tiempo</th><th>Fecha</th><th></th></tr></thead>
+      <thead><tr><th>Código</th><th>NP Sistema</th><th>Cliente</th><th>Estado</th><th>Doc.</th><th>Líneas</th><th>Operario</th><th>Tiempo</th><th>Fecha</th><th></th></tr></thead>
       <tbody>${lista.map(p => {
         const tiempo = formatTiempo(p.timer_secs)
         return `<tr>
-          <td style="font-family:'DM Mono',monospace;color:#555;font-size:12px">${p.nota_pedido}</td>
+          <td style="font-family:'DM Mono',monospace;color:#5aadee;font-size:11px;font-weight:600">${p.codigo_interno || '—'}</td>
+          <td style="font-family:'DM Mono',monospace;color:#444;font-size:11px">${p.nota_pedido}</td>
           <td style="color:#ccc">${p.cliente_nombre}</td>
           <td>${ESTADO_HTML[p.estado] || p.estado}</td>
           <td>${p.documentacion ? `<span class="badge badge-armado" style="font-size:9px">${DOC_LABEL[p.documentacion]}</span>` : '<span style="color:#2a2a2a">—</span>'}</td>
           <td style="font-family:'DM Mono',monospace">${p.lineas}</td>
-          <td style="color:#666">${p.operario_arma || '<span style="color:#2a2a2a">—</span>'}</td>
+          <td style="color:#666;font-size:12px">${p.operario_arma || '<span style="color:#2a2a2a">—</span>'}</td>
           <td style="font-family:'DM Mono',monospace;color:#d4a830;font-size:12px">${tiempo}</td>
           <td style="font-size:11px;color:#444">${p.fecha || new Date(p.hora_registro).toLocaleDateString('es-AR')}</td>
           <td><button class="btn-sm primary" data-id="${p.id}"><i class="ti ti-eye"></i></button></td>
         </tr>`}).join('')}
       </tbody></table>`
-
     wrap.querySelectorAll('[data-id]').forEach(btn => {
       btn.onclick = () => openAction(parseInt(btn.dataset.id))
     })
@@ -262,27 +258,18 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     const p = allPicking.find(x => x.id === id)
     if (!p) return
     editingId = id
-
-    // Si está habilitado o tiene info completa, mostrar detalle
-    if (p.estado === 'habilitado' || (p.estado === 'armado' && p.operario_arma)) {
-      // Si está en armado sin doc, abrir paso 3
-      if (p.estado === 'armado') { openStep3(p); return }
-      // Si está habilitado, mostrar detalle
-      mostrarDetallePicking(p)
-    } else if (p.estado === 'preparacion') {
-      openStep2(p)
-    } else if (p.estado === 'armado') {
-      openStep3(p)
-    } else {
-      mostrarDetallePicking(p)
-    }
+    if (p.estado === 'preparacion') openStep2(p)
+    else if (p.estado === 'armado') openStep3(p)
+    else mostrarDetallePicking(p)
   }
 
   function mostrarDetallePicking(p) {
-    el.querySelector('#pk-detalle-title').textContent = p.nota_pedido + ' — ' + p.cliente_nombre
+    el.querySelector('#pk-detalle-title').textContent = (p.codigo_interno || p.nota_pedido) + ' — ' + p.cliente_nombre
     const lpm = p.timer_secs > 0 ? (p.lineas / (p.timer_secs / 60)).toFixed(1) : '—'
     el.querySelector('#pk-detalle-body').innerHTML = `
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Código interno</div><div style="font-family:'DM Mono',monospace;color:#5aadee">${p.codigo_interno || '—'}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">NP Sistema</div><div style="font-family:'DM Mono',monospace;color:#555">${p.nota_pedido}</div></div>
         <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Estado</div><div>${ESTADO_HTML[p.estado] || p.estado}</div></div>
         <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Líneas</div><div style="font-family:'DM Mono',monospace;color:#ccc;font-size:18px">${p.lineas}</div></div>
         <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Operario arma</div><div style="color:#ccc">${p.operario_arma || '—'}</div></div>
@@ -301,7 +288,7 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
   }
 
   function openStep2(p) {
-    el.querySelector('#pk2-title').textContent = 'Completar armado — ' + p.nota_pedido
+    el.querySelector('#pk2-title').textContent = 'Completar armado — ' + (p.codigo_interno || p.nota_pedido)
     const ops = profiles.filter(u => ['jefe','logistica','operario'].includes(u.rol))
     ;['s2-arma','s2-controla'].forEach(id => {
       const sel = el.querySelector('#' + id)
@@ -317,7 +304,7 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
   }
 
   function openStep3(p) {
-    el.querySelector('#pk3-title').textContent = 'Confirmar doc. — ' + p.nota_pedido
+    el.querySelector('#pk3-title').textContent = 'Confirmar doc. — ' + (p.codigo_interno || p.nota_pedido)
     el.querySelector('#s3-doc').value = ''
     el.querySelector('#s3-warn').style.display = 'none'
     m3.classList.add('open')
@@ -341,18 +328,17 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     const lineas = parseInt(el.querySelector('#s1-lineas').value)
     const clienteNombre = el.querySelector('#s1-cliente-nombre').value.trim() || searchInput.value.trim()
     const clienteIdExistente = el.querySelector('#s1-cliente-id').value
-
     if (!nota || !clienteNombre || !lineas) { alert('Completá todos los campos'); return }
-
     let clienteId = clienteIdExistente || null
     if (!clienteId) {
       const { data } = await supabase.from('clientes').insert({ nombre: clienteNombre }).select().single()
       clienteId = data?.id
       clientes.push({ id: clienteId, nombre: clienteNombre, direccion: null })
     }
-
+    const codigoInterno = await generarCodigoInterno()
     await supabase.from('picking').insert({
       nota_pedido: '#' + nota,
+      codigo_interno: codigoInterno,
       cliente_id: clienteId,
       cliente_nombre: clienteNombre,
       lineas,
@@ -371,13 +357,10 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     const errorCount = errorYn ? parseInt(el.querySelector('#s2-err-count').value) || 0 : 0
     const timerSecs = calcularTiempo()
     await supabase.from('picking').update({
-      operario_arma: arma,
-      operario_controla: controla,
+      operario_arma: arma, operario_controla: controla,
       hora_inicio: el.querySelector('#s2-inicio').value || null,
       hora_fin: el.querySelector('#s2-fin').value || null,
-      timer_secs: timerSecs,
-      error_yn: errorYn,
-      error_count: errorCount,
+      timer_secs: timerSecs, error_yn: errorYn, error_count: errorCount,
       estado: 'armado'
     }).eq('id', editingId)
     m2.classList.remove('open')
@@ -399,7 +382,7 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     const q = el.querySelector('#pk-search').value.toLowerCase()
     const f = el.querySelector('#pk-filter').value
     renderTable(allPicking.filter(p =>
-      (p.nota_pedido.toLowerCase().includes(q) || p.cliente_nombre.toLowerCase().includes(q)) &&
+      (p.nota_pedido.toLowerCase().includes(q) || p.cliente_nombre.toLowerCase().includes(q) || (p.codigo_interno || '').toLowerCase().includes(q)) &&
       (f === '' ? true : p.estado === f)
     ))
   }
