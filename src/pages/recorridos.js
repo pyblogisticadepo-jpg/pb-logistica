@@ -32,6 +32,12 @@ async function optimizeRoute(pedidos) {
   return pedidos
 }
 
+function generarLinkMaps(pedidos) {
+  const origen = `${DEPOSITO.lat},${DEPOSITO.lng}`
+  const paradas = pedidos.map(p => encodeURIComponent(p.dir)).join('/')
+  return `https://www.google.com/maps/dir/${origen}/${paradas}`
+}
+
 let leafletLoaded = false
 let mapInstance = null
 let mapMarkers = []
@@ -92,6 +98,13 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
           <div id="ruta-preview" style="display:none;margin-top:16px;">
             <div style="font-size:10px;letter-spacing:3px;color:#5aadee;text-transform:uppercase;margin-bottom:10px;"><i class="ti ti-route"></i> Ruta optimizada</div>
             <div id="ruta-steps"></div>
+            <div id="maps-link-wrap" style="margin-top:12px;display:none;">
+              <a id="maps-link" href="#" target="_blank" style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:#0d1f0d;border:1px solid #1a3a1a;border-radius:2px;color:#52c452;font-size:12px;text-decoration:none;">
+                <i class="ti ti-map-2" style="font-size:16px"></i>
+                <span>Abrir recorrido en Google Maps</span>
+                <i class="ti ti-external-link" style="font-size:12px;margin-left:auto;color:#2a5a2a"></i>
+              </a>
+            </div>
           </div>
         </div>
         <div class="modal-footer">
@@ -128,13 +141,19 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
     list.innerHTML = recorridos.map(r => {
       const ent = r.recorrido_pedidos.filter(p => p.estado === 'entregado').length
       const estBadge = r.estado === 'en-ruta' ? '<span class="badge badge-en-ruta">En ruta</span>' : r.estado === 'completado' ? '<span class="badge badge-completado">Completado</span>' : '<span class="badge badge-pendiente">Pendiente</span>'
+      // Generar link de maps para recorridos con direcciones
+      const pedidosConDir = r.recorrido_pedidos.filter(p => p.direccion)
+      const mapsUrl = pedidosConDir.length > 0 ? generarLinkMaps(pedidosConDir.map(p => ({ dir: p.direccion }))) : null
       return `<div class="recorrido-card">
         <div class="recorrido-card-header" data-toggle="${r.id}">
           <div>
             <div style="font-family:'DM Mono',monospace;font-size:12px;color:#444;margin-bottom:3px">${r.codigo}</div>
             <div style="font-size:13px;color:#ccc">Operario: <strong>${r.operario}</strong> · ${r.recorrido_pedidos.length} paradas · ${ent} entregadas · ${estBadge}${r.vehiculo ? ' · ' + r.vehiculo : ''}</div>
           </div>
-          <i class="ti ti-chevron-down" style="color:#333;font-size:16px"></i>
+          <div style="display:flex;align-items:center;gap:8px">
+            ${mapsUrl ? `<a href="${mapsUrl}" target="_blank" onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:4px;padding:6px 10px;background:#0d1f0d;border:1px solid #1a3a1a;border-radius:2px;color:#52c452;font-size:11px;text-decoration:none;white-space:nowrap"><i class="ti ti-map-2"></i> Maps</a>` : ''}
+            <i class="ti ti-chevron-down" style="color:#333;font-size:16px"></i>
+          </div>
         </div>
         <div class="recorrido-card-body" id="rbody-${r.id}">
           ${r.recorrido_pedidos.length === 0 ? '<div style="color:#2a2a2a;font-size:12px;padding:8px">Sin paradas</div>' :
@@ -223,6 +242,7 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
     el.querySelector('#btn-new-rec').onclick = async () => {
       selectedPedidos = []
       el.querySelector('#ruta-preview').style.display = 'none'
+      el.querySelector('#maps-link-wrap').style.display = 'none'
       const optimizarBtn = el.querySelector('#optimizar-btn')
       optimizarBtn.innerHTML = '<i class="ti ti-route"></i> Optimizar y crear'
       optimizarBtn.disabled = false
@@ -230,7 +250,7 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
 
       const { data: enRuta } = await supabase.from('recorrido_pedidos').select('nota_pedido')
       const notasEnRuta = (enRuta || []).map(p => p.nota_pedido)
-      const { data: pk } = await supabase.from('picking').select('id, nota_pedido, cliente_nombre, cliente_id').eq('estado', 'habilitado')
+      const { data: pk } = await supabase.from('picking').select('id, nota_pedido, cliente_nombre, cliente_id, codigo_interno').eq('estado', 'habilitado')
       const disponiblesPk = (pk || []).filter(p => !notasEnRuta.includes(p.nota_pedido))
 
       if (disponiblesPk.length === 0) {
@@ -259,10 +279,11 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
           const direccion = esPyb ? (cliente.direccion || '') : (transporte.direccion || '')
           const tieneDir = !!direccion
           const tipoLabel = esPyb ? 'Entrega P&B' : 'Transp. ext.'
+          const label = p.codigo_interno ? `${p.codigo_interno} — ${p.nota_pedido}` : p.nota_pedido
           return `<div data-pk="${p.id}" data-nota="${p.nota_pedido}" data-cliente="${p.cliente_nombre}" data-dir="${direccion}" data-tipo="${tipoTransporte}" data-transporte-nombre="${transporte.nombre || ''}" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#111;border:1px solid #1e1e1e;cursor:${tieneDir ? 'pointer' : 'not-allowed'};border-radius:2px;opacity:${tieneDir ? '1' : '0.4'}">
             <input type="checkbox" style="accent-color:#5aadee" ${tieneDir ? '' : 'disabled'}>
             <div>
-              <div style="font-size:13px;color:#ccc;font-weight:500">${p.nota_pedido} — ${p.cliente_nombre}</div>
+              <div style="font-size:13px;color:#ccc;font-weight:500">${label} — ${p.cliente_nombre}</div>
               <div style="font-size:11px;color:#444;margin-top:2px">${tipoLabel} · ${direccion || '<span style="color:#e05555">Sin dirección</span>'}</div>
             </div>
           </div>`
@@ -329,6 +350,12 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
         return { ...p, coords: coords || { lat: DEPOSITO.lat + Math.random()*0.01, lng: DEPOSITO.lng + Math.random()*0.01 } }
       }))
       pedidosOrdenados = pedidosConCoords.length > 1 ? await optimizeRoute(pedidosConCoords) : pedidosConCoords
+
+      // Generar link de Google Maps
+      const mapsLink = generarLinkMaps(pedidosOrdenados)
+      el.querySelector('#maps-link').href = mapsLink
+      el.querySelector('#maps-link-wrap').style.display = 'block'
+
       el.querySelector('#ruta-preview').style.display = 'block'
       el.querySelector('#ruta-steps').innerHTML = `
         <div style="padding:8px 12px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:2px;margin-bottom:4px;font-size:12px;color:#333">🏭 Depósito P&B — Punto de partida</div>
