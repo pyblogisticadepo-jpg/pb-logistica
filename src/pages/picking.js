@@ -97,8 +97,12 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
               <option value="remito">Remito solo ⚠️ No habilita despacho</option>
             </select>
           </div>
-          <div id="s3-warn" style="display:none;font-size:12px;color:#888;padding:10px 14px;background:#1a1a1a;border:1px solid #222;border-radius:2px;">
+          <div id="s3-warn" style="display:none;font-size:12px;color:#888;padding:10px 14px;background:#1a1a1a;border:1px solid #222;border-radius:2px;margin-bottom:12px;">
             Con solo Remito el pedido no podrá asignarse a reparto hasta recibir la factura.
+          </div>
+          <div class="form-row">
+            <label class="form-label">Cantidad de bultos <span class="req">*</span></label>
+            <input class="form-input" id="s3-bultos" type="number" min="1" placeholder="Ej: 3">
           </div>
         </div>
         <div class="modal-footer"><button class="btn-cancel" id="cancel-pk3">Cancelar</button><button class="btn-confirm" id="save-pk3">Confirmar documentación</button></div>
@@ -233,7 +237,7 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     const wrap = el.querySelector('#picking-table-wrap')
     if (lista.length === 0) { wrap.innerHTML = '<div class="empty-state">Sin registros</div>'; return }
     wrap.innerHTML = `<table class="data-table">
-      <thead><tr><th>Código</th><th>NP Sistema</th><th>Cliente</th><th>Estado</th><th>Doc.</th><th>Líneas</th><th>Operario</th><th>Tiempo</th><th>Fecha</th><th></th></tr></thead>
+      <thead><tr><th>Código</th><th>NP Sistema</th><th>Cliente</th><th>Estado</th><th>Doc.</th><th>Líneas</th><th>Bultos</th><th>Operario</th><th>Tiempo</th><th>Fecha</th><th></th></tr></thead>
       <tbody>${lista.map(p => {
         const tiempo = formatTiempo(p.timer_secs)
         return `<tr>
@@ -243,9 +247,10 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
           <td>${ESTADO_HTML[p.estado] || p.estado}</td>
           <td>${p.documentacion ? `<span class="badge badge-armado" style="font-size:9px">${DOC_LABEL[p.documentacion]}</span>` : '<span style="color:#2a2a2a">—</span>'}</td>
           <td style="font-family:'DM Mono',monospace">${p.lineas}</td>
+          <td style="font-family:'DM Mono',monospace;color:${p.bultos ? '#d4a830' : '#2a2a2a'}">${p.bultos || '—'}</td>
           <td style="color:#666;font-size:12px">${p.operario_arma || '<span style="color:#2a2a2a">—</span>'}</td>
           <td style="font-family:'DM Mono',monospace;color:#d4a830;font-size:12px">${tiempo}</td>
-          <td style="font-size:11px;color:#444">${p.fecha || new Date(p.hora_registro).toLocaleDateString('es-AR')}</td>
+          <td style="font-size:11px;color:#888">${p.fecha || new Date(p.hora_registro).toLocaleDateString('es-AR')}</td>
           <td><button class="btn-sm primary" data-id="${p.id}"><i class="ti ti-eye"></i></button></td>
         </tr>`}).join('')}
       </tbody></table>`
@@ -272,13 +277,14 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
         <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">NP Sistema</div><div style="font-family:'DM Mono',monospace;color:#555">${p.nota_pedido}</div></div>
         <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Estado</div><div>${ESTADO_HTML[p.estado] || p.estado}</div></div>
         <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Líneas</div><div style="font-family:'DM Mono',monospace;color:#ccc;font-size:18px">${p.lineas}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Bultos</div><div style="font-family:'DM Mono',monospace;color:#d4a830;font-size:18px">${p.bultos || '—'}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Documentación</div><div>${p.documentacion ? `<span class="badge badge-armado" style="font-size:9px">${DOC_LABEL[p.documentacion]}</span>` : '<span style="color:#2a2a2a">—</span>'}</div></div>
         <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Operario arma</div><div style="color:#ccc">${p.operario_arma || '—'}</div></div>
         <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Operario controla</div><div style="color:#ccc">${p.operario_controla || '—'}</div></div>
         <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Hora inicio</div><div style="font-family:'DM Mono',monospace;color:#888">${p.hora_inicio || '—'}</div></div>
         <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Hora fin</div><div style="font-family:'DM Mono',monospace;color:#888">${p.hora_fin || '—'}</div></div>
         <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Tiempo total</div><div style="font-family:'DM Mono',monospace;color:#d4a830">${formatTiempo(p.timer_secs)}</div></div>
         <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Líneas/min</div><div style="font-family:'DM Mono',monospace;color:#5aadee">${lpm}</div></div>
-        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Documentación</div><div>${p.documentacion ? `<span class="badge badge-armado" style="font-size:9px">${DOC_LABEL[p.documentacion]}</span>` : '<span style="color:#2a2a2a">—</span>'}</div></div>
         <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Errores</div><div style="font-family:'DM Mono',monospace;color:${p.error_count > 0 ? '#ff6b2b' : '#2a2a2a'}">${p.error_count || 0}</div></div>
       </div>
       <div style="font-size:11px;color:#333;border-top:1px solid #1a1a1a;padding-top:10px">
@@ -307,6 +313,7 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     el.querySelector('#pk3-title').textContent = 'Confirmar doc. — ' + (p.codigo_interno || p.nota_pedido)
     el.querySelector('#s3-doc').value = ''
     el.querySelector('#s3-warn').style.display = 'none'
+    el.querySelector('#s3-bultos').value = ''
     m3.classList.add('open')
   }
 
@@ -369,9 +376,15 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
 
   el.querySelector('#save-pk3').onclick = async () => {
     const doc = el.querySelector('#s3-doc').value
+    const bultos = parseInt(el.querySelector('#s3-bultos').value)
     if (!doc) { alert('Seleccioná el tipo de documentación'); return }
+    if (!bultos || bultos < 1) { alert('Ingresá la cantidad de bultos'); return }
     const habilita = doc !== 'remito'
-    await supabase.from('picking').update({ documentacion: doc, estado: habilita ? 'habilitado' : 'armado' }).eq('id', editingId)
+    await supabase.from('picking').update({
+      documentacion: doc,
+      bultos,
+      estado: habilita ? 'habilitado' : 'armado'
+    }).eq('id', editingId)
     m3.classList.remove('open')
     await load()
   }
@@ -385,6 +398,12 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
       (p.nota_pedido.toLowerCase().includes(q) || p.cliente_nombre.toLowerCase().includes(q) || (p.codigo_interno || '').toLowerCase().includes(q)) &&
       (f === '' ? true : p.estado === f)
     ))
+  }
+
+  async function generarCodigoInterno() {
+    const { data } = await supabase.from('picking').select('id').order('id', { ascending: false }).limit(1)
+    const lastId = data?.[0]?.id || 0
+    return 'PYB-' + String(lastId + 1).padStart(4, '0')
   }
 
   await load()
