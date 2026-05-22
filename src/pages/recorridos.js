@@ -141,7 +141,6 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
     list.innerHTML = recorridos.map(r => {
       const ent = r.recorrido_pedidos.filter(p => p.estado === 'entregado').length
       const estBadge = r.estado === 'en-ruta' ? '<span class="badge badge-en-ruta">En ruta</span>' : r.estado === 'completado' ? '<span class="badge badge-completado">Completado</span>' : '<span class="badge badge-pendiente">Pendiente</span>'
-      // Generar link de maps para recorridos con direcciones
       const pedidosConDir = r.recorrido_pedidos.filter(p => p.direccion)
       const mapsUrl = pedidosConDir.length > 0 ? generarLinkMaps(pedidosConDir.map(p => ({ dir: p.direccion }))) : null
       return `<div class="recorrido-card">
@@ -162,7 +161,10 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
               <div class="stop-num ${p.tipo}">${p.orden}</div>
               <div style="flex:1">
                 <div style="font-size:13px;color:#ccc;font-weight:500">${p.cliente_nombre}</div>
-                <div style="font-size:11px;color:#333;margin-top:2px"><i class="ti ti-map-pin" style="font-size:10px"></i> ${p.direccion || '—'}${p.tipo === 'externo' ? ' · ' + (p.transporte_nombre || '') : ''}</div>
+                <div style="font-size:11px;color:#333;margin-top:2px">
+                  ${p.codigo_interno ? `<span style="font-family:'DM Mono',monospace;color:#5aadee;font-size:10px">${p.codigo_interno}</span> · ` : ''}
+                  <i class="ti ti-map-pin" style="font-size:10px"></i> ${p.direccion || '—'}${p.tipo === 'externo' ? ' · ' + (p.transporte_nombre || '') : ''}
+                </div>
               </div>
               <div>${p.estado === 'entregado' ? `<span class="badge badge-ok" style="font-size:9px">✓ ${p.hora_entrega || ''}</span>` : '<span class="badge badge-pendiente" style="font-size:9px">Pendiente</span>'}</div>
             </div>`).join('')}
@@ -248,10 +250,18 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
       optimizarBtn.disabled = false
       optimizarBtn.dataset.step = ''
 
-      const { data: enRuta } = await supabase.from('recorrido_pedidos').select('nota_pedido')
-      const notasEnRuta = (enRuta || []).map(p => p.nota_pedido)
+      // Usar codigo_interno como identificador único
+      const { data: enRuta } = await supabase.from('recorrido_pedidos').select('codigo_interno, nota_pedido')
+      const codigosEnRuta = new Set((enRuta || []).map(p => p.codigo_interno).filter(Boolean))
+      const notasEnRuta = new Set((enRuta || []).map(p => p.nota_pedido).filter(Boolean))
+
       const { data: pk } = await supabase.from('picking').select('id, nota_pedido, cliente_nombre, cliente_id, codigo_interno').eq('estado', 'habilitado')
-      const disponiblesPk = (pk || []).filter(p => !notasEnRuta.includes(p.nota_pedido))
+      
+      // Filtrar por codigo_interno si existe, sino por nota_pedido
+      const disponiblesPk = (pk || []).filter(p => {
+        if (p.codigo_interno) return !codigosEnRuta.has(p.codigo_interno)
+        return !notasEnRuta.has(p.nota_pedido)
+      })
 
       if (disponiblesPk.length === 0) {
         el.querySelector('#pedidos-disponibles').innerHTML = '<div style="color:#2a2a2a;font-size:12px;padding:10px">Sin pedidos habilitados disponibles</div>'
@@ -280,7 +290,7 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
           const tieneDir = !!direccion
           const tipoLabel = esPyb ? 'Entrega P&B' : 'Transp. ext.'
           const label = p.codigo_interno ? `${p.codigo_interno} — ${p.nota_pedido}` : p.nota_pedido
-          return `<div data-pk="${p.id}" data-nota="${p.nota_pedido}" data-cliente="${p.cliente_nombre}" data-dir="${direccion}" data-tipo="${tipoTransporte}" data-transporte-nombre="${transporte.nombre || ''}" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#111;border:1px solid #1e1e1e;cursor:${tieneDir ? 'pointer' : 'not-allowed'};border-radius:2px;opacity:${tieneDir ? '1' : '0.4'}">
+          return `<div data-pk="${p.id}" data-nota="${p.nota_pedido}" data-codigo="${p.codigo_interno || ''}" data-cliente="${p.cliente_nombre}" data-dir="${direccion}" data-tipo="${tipoTransporte}" data-transporte-nombre="${transporte.nombre || ''}" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#111;border:1px solid #1e1e1e;cursor:${tieneDir ? 'pointer' : 'not-allowed'};border-radius:2px;opacity:${tieneDir ? '1' : '0.4'}">
             <input type="checkbox" style="accent-color:#5aadee" ${tieneDir ? '' : 'disabled'}>
             <div>
               <div style="font-size:13px;color:#ccc;font-weight:500">${label} — ${p.cliente_nombre}</div>
@@ -298,7 +308,15 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
               cb.checked = false
               item.style.borderColor = '#1e1e1e'
             } else {
-              selectedPedidos.push({ id, nota: item.dataset.nota, cliente: item.dataset.cliente, dir: item.dataset.dir, tipo: item.dataset.tipo === 'pyb' ? 'pyb' : 'externo', transporteNombre: item.dataset.transporteNombre || null })
+              selectedPedidos.push({
+                id,
+                nota: item.dataset.nota,
+                codigo: item.dataset.codigo || null,
+                cliente: item.dataset.cliente,
+                dir: item.dataset.dir,
+                tipo: item.dataset.tipo === 'pyb' ? 'pyb' : 'externo',
+                transporteNombre: item.dataset.transporteNombre || null
+              })
               cb.checked = true
               item.style.borderColor = '#5aadee'
             }
@@ -329,7 +347,17 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
         const codigo = `RPT-${today}-${num}`
         const { data: rec, error: recError } = await supabase.from('recorridos').insert({ codigo, operario, estado: 'pendiente' }).select().single()
         if (recError || !rec) { alert('Error: ' + (recError?.message || 'desconocido')); btn.disabled = false; return }
-        const pedidosInsert = pedidosOrdenados.map((p, i) => ({ recorrido_id: rec.id, nota_pedido: p.nota, cliente_nombre: p.cliente, direccion: p.dir || null, tipo: p.tipo, transporte_nombre: p.transporteNombre || null, orden: i + 1, estado: 'pendiente' }))
+        const pedidosInsert = pedidosOrdenados.map((p, i) => ({
+          recorrido_id: rec.id,
+          nota_pedido: p.nota,
+          codigo_interno: p.codigo || null,
+          cliente_nombre: p.cliente,
+          direccion: p.dir || null,
+          tipo: p.tipo,
+          transporte_nombre: p.transporteNombre || null,
+          orden: i + 1,
+          estado: 'pendiente'
+        }))
         const { error: pedError } = await supabase.from('recorrido_pedidos').insert(pedidosInsert)
         if (pedError) { alert('Error: ' + pedError.message); btn.disabled = false; return }
         modal.classList.remove('open')
@@ -351,7 +379,6 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
       }))
       pedidosOrdenados = pedidosConCoords.length > 1 ? await optimizeRoute(pedidosConCoords) : pedidosConCoords
 
-      // Generar link de Google Maps
       const mapsLink = generarLinkMaps(pedidosOrdenados)
       el.querySelector('#maps-link').href = mapsLink
       el.querySelector('#maps-link-wrap').style.display = 'block'
@@ -362,7 +389,11 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
         ${pedidosOrdenados.map((p, i) => `
           <div style="padding:8px 12px;background:#0d1f2d;border:1px solid #1a3a52;border-radius:2px;margin-bottom:4px;display:flex;align-items:center;gap:10px;">
             <div style="width:20px;height:20px;border-radius:50%;background:#0d1f2d;border:1px solid #5aadee;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#5aadee;flex-shrink:0">${i+1}</div>
-            <div><div style="font-size:12px;color:#ccc">${p.cliente}</div><div style="font-size:11px;color:#444">${p.dir}</div></div>
+            <div>
+              ${p.codigo ? `<div style="font-size:10px;font-family:'DM Mono',monospace;color:#5aadee;margin-bottom:2px">${p.codigo}</div>` : ''}
+              <div style="font-size:12px;color:#ccc">${p.cliente}</div>
+              <div style="font-size:11px;color:#444">${p.dir}</div>
+            </div>
           </div>`).join('')}`
       btn.innerHTML = '<i class="ti ti-check"></i> Confirmar recorrido'
       btn.disabled = false
