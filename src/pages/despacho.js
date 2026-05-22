@@ -157,7 +157,12 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     if (!esPersonal && r.vehiculo) await supabase.from('vehiculos').update({ en_uso: false, km_actual: km }).eq('nombre', r.vehiculo)
     const rechazados = r.recorrido_pedidos.filter(p => p.estado === 'pendiente' && p.observaciones)
     for (const p of rechazados) {
-      await supabase.from('picking').update({ estado: 'habilitado' }).eq('nota_pedido', p.nota_pedido)
+      // Usar codigo_interno si existe, sino nota_pedido
+      if (p.codigo_interno) {
+        await supabase.from('picking').update({ estado: 'habilitado' }).eq('codigo_interno', p.codigo_interno)
+      } else {
+        await supabase.from('picking').update({ estado: 'habilitado' }).eq('nota_pedido', p.nota_pedido)
+      }
     }
     modalRegreso.classList.remove('open')
     await load()
@@ -231,12 +236,19 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       const pickingId = parseInt(btn.dataset.marcarRetiro)
       const hora = new Date().toTimeString().slice(0,5)
       const fecha = new Date().toISOString().split('T')[0]
-      const { data: pk } = await supabase.from('picking').select('nota_pedido, cliente_nombre, documentacion, cliente_id').eq('id', pickingId).single()
+      const { data: pk } = await supabase.from('picking').select('nota_pedido, cliente_nombre, documentacion, cliente_id, codigo_interno').eq('id', pickingId).single()
       if (!pk) return
-      const { data: yaRetirado } = await supabase.from('retiras').select('id').eq('nota_pedido', pk.nota_pedido).single()
+      // Verificar doble retiro usando codigo_interno si existe
+      let yaRetirado = null
+      if (pk.codigo_interno) {
+        const { data } = await supabase.from('retiras').select('id').eq('codigo_interno', pk.codigo_interno).maybeSingle()
+        yaRetirado = data
+      } else {
+        const { data } = await supabase.from('retiras').select('id').eq('nota_pedido', pk.nota_pedido).maybeSingle()
+        yaRetirado = data
+      }
       if (yaRetirado) { alert('Este pedido ya fue marcado como retirado anteriormente'); return }
 
-      // Buscar nombre del transporte si corresponde
       let transporteNombre = null
       if (pk.cliente_id) {
         const { data: cliente } = await supabase.from('clientes').select('transporte_tipo, transporte_id').eq('id', pk.cliente_id).single()
@@ -248,6 +260,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
 
       await supabase.from('retiras').insert({
         nota_pedido: pk.nota_pedido,
+        codigo_interno: pk.codigo_interno || null,
         cliente_nombre: pk.cliente_nombre,
         documentacion: pk.documentacion,
         estado: 'retirado',
@@ -269,7 +282,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
 
     const { data: allPicking } = await supabase
       .from('picking')
-      .select('id, nota_pedido, cliente_nombre, cliente_id, documentacion')
+      .select('id, nota_pedido, codigo_interno, cliente_nombre, cliente_id, documentacion')
       .eq('estado', 'habilitado')
 
     const clienteIds = [...new Set((allPicking || []).map(p => p.cliente_id).filter(Boolean))]
@@ -286,27 +299,38 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     const transportesRetiraMap = {}
     ;(transportesRetira || []).forEach(t => { transportesRetiraMap[t.id] = t.nombre })
 
+    // Usar codigo_interno para identificar entregados
     const { data: todosEntregados } = await supabase
-      .from('recorrido_pedidos').select('nota_pedido').eq('estado', 'entregado')
-    const notasYaEntregadas = new Set((todosEntregados || []).map(p => p.nota_pedido))
+      .from('recorrido_pedidos').select('nota_pedido, codigo_interno').eq('estado', 'entregado')
+    const codigosYaEntregados = new Set((todosEntregados || []).map(p => p.codigo_interno).filter(Boolean))
+    const notasYaEntregadas = new Set((todosEntregados || []).map(p => p.nota_pedido).filter(Boolean))
 
     const notasEnRecorridoActivo = currentRecorridos
       .filter(r => r.estado !== 'completado')
       .flatMap(r => r.recorrido_pedidos.map(p => p.nota_pedido))
+    const codigosEnRecorridoActivo = new Set(currentRecorridos
+      .filter(r => r.estado !== 'completado')
+      .flatMap(r => r.recorrido_pedidos.map(p => p.codigo_interno).filter(Boolean)))
 
-    const { data: todasRetiras } = await supabase.from('retiras').select('nota_pedido')
-    const notasYaRetiradas = new Set((todasRetiras || []).map(r => r.nota_pedido))
+    const { data: todasRetiras } = await supabase.from('retiras').select('nota_pedido, codigo_interno')
+    const codigosYaRetirados = new Set((todasRetiras || []).map(r => r.codigo_interno).filter(Boolean))
+    const notasYaRetiradas = new Set((todasRetiras || []).map(r => r.nota_pedido).filter(Boolean))
 
     const retirosPendientes = []
     const entregasPendientes = []
 
     ;(allPicking || []).forEach(p => {
-      if (notasYaEntregadas.has(p.nota_pedido)) return
-      if (notasEnRecorridoActivo.includes(p.nota_pedido)) return
-      if (notasYaRetiradas.has(p.nota_pedido)) return
+      // Verificar si ya fue entregado
+      if (p.codigo_interno ? codigosYaEntregados.has(p.codigo_interno) : notasYaEntregadas.has(p.nota_pedido)) return
+      // Verificar si está en recorrido activo
+      if (p.codigo_interno ? codigosEnRecorridoActivo.has(p.codigo_interno) : notasEnRecorridoActivo.includes(p.nota_pedido)) return
+      // Verificar si ya fue retirado
+      if (p.codigo_interno ? codigosYaRetirados.has(p.codigo_interno) : notasYaRetiradas.has(p.nota_pedido)) return
+
       const cliente = clientesMap[p.cliente_id]
       if (!cliente) return
       const tipo = cliente.transporte_tipo
+
       if (tipo === 'retira') {
         retirosPendientes.push({ ...p, _label: 'Retira cliente', _color: '#4dd4d4', _border: '#1a3636' })
       } else if (tipo === 'externo' && idsRetiraDeposito.has(cliente.transporte_id)) {
@@ -331,7 +355,10 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
         <div style="background:#111;border:1px solid ${p._border};padding:14px 16px;margin-bottom:8px;border-radius:2px;display:flex;align-items:center;gap:12px;">
           <div style="flex:1">
             <div style="font-size:13px;color:#ccc;font-weight:500">${p.cliente_nombre} <span style="font-size:10px;color:${p._color};margin-left:6px">${p._label}</span></div>
-            <div style="font-size:11px;color:#444;margin-top:2px">${p.nota_pedido} · Doc: ${p.documentacion === 'fac_remito' ? 'Fac. y Remito' : p.documentacion === 'fac_etiqueta' ? 'Fac. y Etiqueta' : p.documentacion || '—'}</div>
+            <div style="font-size:11px;color:#444;margin-top:2px">
+              ${p.codigo_interno ? `<span style="font-family:'DM Mono',monospace;color:#5aadee">${p.codigo_interno}</span> · ` : ''}
+              ${p.nota_pedido} · Doc: ${p.documentacion === 'fac_remito' ? 'Fac. y Remito' : p.documentacion === 'fac_etiqueta' ? 'Fac. y Etiqueta' : p.documentacion || '—'}
+            </div>
           </div>
           <span style="font-size:10px;color:#444;letter-spacing:1px">Sin recorrido</span>
         </div>`).join('')
@@ -343,7 +370,10 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
         <div style="background:#111;border:1px solid ${p._border};padding:14px 16px;margin-bottom:8px;border-radius:2px;display:flex;align-items:center;gap:12px;">
           <div style="flex:1">
             <div style="font-size:13px;color:#ccc;font-weight:500">${p.cliente_nombre} <span style="font-size:10px;color:${p._color};margin-left:6px">${p._label}</span></div>
-            <div style="font-size:11px;color:#444;margin-top:2px">${p.nota_pedido} · Doc: ${p.documentacion === 'fac_remito' ? 'Fac. y Remito' : p.documentacion === 'fac_etiqueta' ? 'Fac. y Etiqueta' : p.documentacion || '—'}</div>
+            <div style="font-size:11px;color:#444;margin-top:2px">
+              ${p.codigo_interno ? `<span style="font-family:'DM Mono',monospace;color:#5aadee">${p.codigo_interno}</span> · ` : ''}
+              ${p.nota_pedido} · Doc: ${p.documentacion === 'fac_remito' ? 'Fac. y Remito' : p.documentacion === 'fac_etiqueta' ? 'Fac. y Etiqueta' : p.documentacion || '—'}
+            </div>
           </div>
           ${!isObserver ? `<button class="btn-sm green" data-marcar-retiro="${p.id}"><i class="ti ti-check"></i> Marcar retirado</button>` : ''}
         </div>`).join('')
@@ -355,7 +385,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
         <div style="background:#0d1e0d;border:1px solid #1a361a;padding:12px 16px;margin-bottom:8px;border-radius:2px;display:flex;align-items:center;gap:12px;opacity:.8">
           <div style="flex:1">
             <div style="font-size:13px;color:#52c452;font-weight:500">${r.cliente_nombre}</div>
-            <div style="font-size:11px;color:#2a5a2a;margin-top:2px">${r.nota_pedido}${r.transporte_nombre ? ' · ' + r.transporte_nombre : ''} · Retirado: ${r.hora_retiro || '—'}</div>
+            <div style="font-size:11px;color:#2a5a2a;margin-top:2px">${r.codigo_interno || r.nota_pedido}${r.transporte_nombre ? ' · ' + r.transporte_nombre : ''} · Retirado: ${r.hora_retiro || '—'}</div>
           </div>
           <span class="badge badge-ok" style="font-size:9px">✓ Retirado</span>
         </div>`).join('')
@@ -389,7 +419,10 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
                 <div class="pedido-orden ${p.tipo || 'pyb'}">${p.orden}</div>
                 <div style="flex:1">
                   <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:2px">${p.cliente_nombre}</div>
-                  <div style="font-size:11px;color:#444"><i class="ti ti-map-pin" style="font-size:10px"></i> ${p.direccion || '—'} · ${p.nota_pedido}${p.tipo === 'externo' ? ' · ' + (p.transporte_nombre || '') : ''}</div>
+                  <div style="font-size:11px;color:#444">
+                    ${p.codigo_interno ? `<span style="font-family:'DM Mono',monospace;color:#5aadee;font-size:10px">${p.codigo_interno}</span> · ` : ''}
+                    <i class="ti ti-map-pin" style="font-size:10px"></i> ${p.direccion || '—'} · ${p.nota_pedido}${p.tipo === 'externo' ? ' · ' + (p.transporte_nombre || '') : ''}
+                  </div>
                   ${p.observaciones ? `<div style="font-size:11px;color:#e05555;margin-top:3px"><i class="ti ti-alert-circle" style="font-size:10px"></i> ${p.observaciones}</div>` : ''}
                 </div>
                 <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
