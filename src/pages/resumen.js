@@ -51,6 +51,7 @@ export async function renderResumen(el, { supabase, currentUser }) {
       .select('*')
       .eq('fecha', fecha)
 
+    // Traer clientes para los retiros pendientes
     const { data: allPicking } = await supabase
       .from('picking')
       .select('*, clientes(transporte_tipo, transporte_id, transportes(nombre, retira_deposito))')
@@ -66,26 +67,30 @@ export async function renderResumen(el, { supabase, currentUser }) {
       return false
     })
 
-    // Construir lista completa con info detallada
     const todos = [
-      ...(recorridos || []).flatMap(r => r.recorrido_pedidos.map(p => ({
-        id: p.id,
-        cliente: p.cliente_nombre,
-        nota: p.nota_pedido,
-        tipo: p.tipo === 'pyb' ? 'pyb' : 'externo',
-        tipoLabel: p.tipo === 'pyb' ? 'Entrega P&B' : 'Transp. ext.',
-        operario: r.operario,
-        vehiculo: r.vehiculo,
-        estado: p.estado === 'entregado' ? 'entregado' : 'reparto',
-        horaEntrega: p.hora_entrega,
-        recorrido: r.codigo,
-        kmSalida: r.km_salida,
-        kmRegreso: r.km_regreso,
-        horaSalida: r.hora_salida,
-        observaciones: p.observaciones,
-        direccion: p.direccion,
-        _tipo: 'recorrido'
-      }))),
+      // Pedidos en recorridos
+      ...(recorridos || []).flatMap(r => r.recorrido_pedidos.map(p => {
+        const rechazado = p.estado === 'pendiente' && p.observaciones
+        return {
+          id: p.id,
+          cliente: p.cliente_nombre,
+          nota: p.nota_pedido,
+          tipo: p.tipo === 'pyb' ? 'pyb' : 'externo',
+          tipoLabel: p.tipo === 'pyb' ? 'Entrega P&B' : 'Transp. ext.',
+          operario: r.operario,
+          vehiculo: r.vehiculo,
+          estado: p.estado === 'entregado' ? 'entregado' : rechazado ? 'rechazado' : 'reparto',
+          horaEntrega: p.hora_entrega,
+          recorrido: r.codigo,
+          kmSalida: r.km_salida,
+          kmRegreso: r.km_regreso,
+          horaSalida: r.hora_salida,
+          observaciones: p.observaciones,
+          direccion: p.direccion,
+          _tipo: 'recorrido'
+        }
+      })),
+      // Retirados hoy
       ...(retiras || []).map(r => ({
         id: r.id,
         cliente: r.cliente_nombre,
@@ -97,8 +102,10 @@ export async function renderResumen(el, { supabase, currentUser }) {
         horaEntrega: r.hora_retiro,
         recorrido: '—',
         documentacion: r.documentacion,
+        transporteRetira: r.transporte_nombre || null,
         _tipo: 'retira'
       })),
+      // Retiros pendientes
       ...retirosPendientes.map(p => ({
         id: p.id,
         cliente: p.cliente_nombre,
@@ -122,6 +129,7 @@ export async function renderResumen(el, { supabase, currentUser }) {
 
     const entregados = todos.filter(p => p.estado === 'entregado').length
     const enReparto = todos.filter(p => p.estado === 'reparto').length
+    const rechazados = todos.filter(p => p.estado === 'rechazado').length
     const pendientes = todos.filter(p => p.estado === 'pendiente').length
 
     wrap.innerHTML = `
@@ -132,13 +140,14 @@ export async function renderResumen(el, { supabase, currentUser }) {
             <td style="color:#ccc;font-weight:500">${p.cliente}</td>
             <td>
               ${p.tipo === 'pyb' ? '<span class="badge badge-pyb">Entrega P&B</span>' :
-                p.tipo === 'retira' ? '<span class="badge badge-retira">' + p.tipoLabel + '</span>' :
+                p.tipo === 'retira' ? `<span class="badge badge-retira">${p.tipoLabel}</span>` :
                 '<span class="badge badge-externo">Transp. ext.</span>'}
             </td>
             <td style="color:#555">${p.operario}</td>
             <td>
               ${p.estado === 'entregado' ? '<span class="badge badge-entregado">Entregado</span>' :
                 p.estado === 'reparto' ? '<span class="badge badge-reparto">En reparto</span>' :
+                p.estado === 'rechazado' ? '<span class="badge" style="background:#2a0a0a;color:#e05555">Rechazado</span>' :
                 '<span class="badge badge-pendiente">Pend. retiro</span>'}
             </td>
             <td style="font-family:'DM Mono',monospace;color:${p.horaEntrega ? '#52c452' : '#2a2a2a'}">${p.horaEntrega || '—'}</td>
@@ -148,7 +157,6 @@ export async function renderResumen(el, { supabase, currentUser }) {
         </tbody>
       </table>`
 
-    // Event listeners para el ojito
     wrap.querySelectorAll('[data-detalle]').forEach(btn => {
       btn.onclick = () => {
         const p = JSON.parse(btn.dataset.detalle.replace(/&#39;/g, "'"))
@@ -160,6 +168,7 @@ export async function renderResumen(el, { supabase, currentUser }) {
       <div class="stat-card"><div class="stat-label">Total pedidos</div><div class="stat-value">${todos.length}</div></div>
       <div class="stat-card"><div class="stat-label">Entregados</div><div class="stat-value">${entregados}</div></div>
       <div class="stat-card"><div class="stat-label">En reparto</div><div class="stat-value">${enReparto}</div></div>
+      <div class="stat-card"><div class="stat-label">Rechazados</div><div class="stat-value" style="color:${rechazados > 0 ? '#e05555' : 'inherit'}">${rechazados}</div></div>
       <div class="stat-card"><div class="stat-label">Pend. retiro</div><div class="stat-value">${pendientes}</div></div>`
   }
 
@@ -171,7 +180,11 @@ export async function renderResumen(el, { supabase, currentUser }) {
       html = `
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
           <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Recorrido</div><div style="font-family:'DM Mono',monospace;color:#5aadee">${p.recorrido}</div></div>
-          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Estado</div><div>${p.estado === 'entregado' ? '<span class="badge badge-entregado">Entregado</span>' : '<span class="badge badge-reparto">En reparto</span>'}</div></div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Estado</div><div>
+            ${p.estado === 'entregado' ? '<span class="badge badge-entregado">Entregado</span>' :
+              p.estado === 'rechazado' ? '<span class="badge" style="background:#2a0a0a;color:#e05555">Rechazado</span>' :
+              '<span class="badge badge-reparto">En reparto</span>'}
+          </div></div>
           <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Operario</div><div style="color:#ccc">${p.operario}</div></div>
           <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Vehículo</div><div style="color:#ccc">${p.vehiculo || '—'}</div></div>
           <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Hora salida</div><div style="font-family:'DM Mono',monospace;color:#888">${p.horaSalida || '—'}</div></div>
@@ -181,12 +194,20 @@ export async function renderResumen(el, { supabase, currentUser }) {
         </div>
         ${p.direccion ? `<div style="background:#111;border:1px solid #1e1e1e;padding:10px 14px;border-radius:2px;font-size:12px;color:#555;margin-bottom:12px"><i class="ti ti-map-pin" style="font-size:11px"></i> ${p.direccion}</div>` : ''}
         ${p.observaciones ? `<div style="background:#1f0d0d;border:1px solid #3a1a1a;padding:10px 14px;border-radius:2px;font-size:12px;color:#e05555;margin-bottom:12px"><i class="ti ti-alert-circle" style="font-size:11px"></i> ${p.observaciones}</div>` : ''}`
-    } else if (p._tipo === 'retira' || p._tipo === 'retira_pendiente') {
+    } else if (p._tipo === 'retira') {
       html = `
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
           <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Tipo</div><div><span class="badge badge-retira">${p.tipoLabel}</span></div></div>
-          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Estado</div><div>${p.estado === 'entregado' ? '<span class="badge badge-entregado">Retirado</span>' : '<span class="badge badge-pendiente">Pendiente</span>'}</div></div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Estado</div><div><span class="badge badge-entregado">Retirado</span></div></div>
           <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Hora retiro</div><div style="font-family:'DM Mono',monospace;color:${p.horaEntrega ? '#52c452' : '#2a2a2a'}">${p.horaEntrega || '—'}</div></div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Documentación</div><div style="color:#888">${p.documentacion === 'fac_remito' ? 'Fac. y Remito' : p.documentacion === 'fac_etiqueta' ? 'Fac. y Etiqueta' : p.documentacion || '—'}</div></div>
+          ${p.transporteRetira ? `<div style="grid-column:span 2"><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Transporte que retiró</div><div style="color:#d4a830">${p.transporteRetira}</div></div>` : ''}
+        </div>`
+    } else if (p._tipo === 'retira_pendiente') {
+      html = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Tipo</div><div><span class="badge badge-retira">${p.tipoLabel}</span></div></div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Estado</div><div><span class="badge badge-pendiente">Pendiente retiro</span></div></div>
           <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Documentación</div><div style="color:#888">${p.documentacion === 'fac_remito' ? 'Fac. y Remito' : p.documentacion === 'fac_etiqueta' ? 'Fac. y Etiqueta' : p.documentacion || '—'}</div></div>
         </div>`
     }

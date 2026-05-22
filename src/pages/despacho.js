@@ -155,7 +155,6 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     const { error } = await supabase.from('recorridos').update({ estado: 'completado', km_regreso: km }).eq('id', activeRecorridoId)
     if (error) { alert('Error: ' + error.message); return }
     if (!esPersonal && r.vehiculo) await supabase.from('vehiculos').update({ en_uso: false, km_actual: km }).eq('nombre', r.vehiculo)
-    // Los pedidos rechazados (pendiente con observaciones) vuelven a habilitado
     const rechazados = r.recorrido_pedidos.filter(p => p.estado === 'pendiente' && p.observaciones)
     for (const p of rechazados) {
       await supabase.from('picking').update({ estado: 'habilitado' }).eq('nota_pedido', p.nota_pedido)
@@ -232,17 +231,29 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       const pickingId = parseInt(btn.dataset.marcarRetiro)
       const hora = new Date().toTimeString().slice(0,5)
       const fecha = new Date().toISOString().split('T')[0]
-      const { data: pk } = await supabase.from('picking').select('nota_pedido, cliente_nombre, documentacion').eq('id', pickingId).single()
+      const { data: pk } = await supabase.from('picking').select('nota_pedido, cliente_nombre, documentacion, cliente_id').eq('id', pickingId).single()
       if (!pk) return
       const { data: yaRetirado } = await supabase.from('retiras').select('id').eq('nota_pedido', pk.nota_pedido).single()
       if (yaRetirado) { alert('Este pedido ya fue marcado como retirado anteriormente'); return }
+
+      // Buscar nombre del transporte si corresponde
+      let transporteNombre = null
+      if (pk.cliente_id) {
+        const { data: cliente } = await supabase.from('clientes').select('transporte_tipo, transporte_id').eq('id', pk.cliente_id).single()
+        if (cliente?.transporte_tipo === 'externo' && cliente?.transporte_id) {
+          const { data: transp } = await supabase.from('transportes').select('nombre').eq('id', cliente.transporte_id).single()
+          transporteNombre = transp?.nombre || null
+        }
+      }
+
       await supabase.from('retiras').insert({
         nota_pedido: pk.nota_pedido,
         cliente_nombre: pk.cliente_nombre,
         documentacion: pk.documentacion,
         estado: 'retirado',
         hora_retiro: hora,
-        fecha
+        fecha,
+        transporte_nombre: transporteNombre
       })
       await load()
     }
@@ -265,9 +276,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     let clientesMap = {}
     if (clienteIds.length > 0) {
       const { data: clientes } = await supabase
-        .from('clientes')
-        .select('id, transporte_tipo, transporte_id')
-        .in('id', clienteIds)
+        .from('clientes').select('id, transporte_tipo, transporte_id').in('id', clienteIds)
       ;(clientes || []).forEach(c => { clientesMap[c.id] = c })
     }
 
@@ -295,11 +304,9 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       if (notasYaEntregadas.has(p.nota_pedido)) return
       if (notasEnRecorridoActivo.includes(p.nota_pedido)) return
       if (notasYaRetiradas.has(p.nota_pedido)) return
-
       const cliente = clientesMap[p.cliente_id]
       if (!cliente) return
       const tipo = cliente.transporte_tipo
-
       if (tipo === 'retira') {
         retirosPendientes.push({ ...p, _label: 'Retira cliente', _color: '#4dd4d4', _border: '#1a3636' })
       } else if (tipo === 'externo' && idsRetiraDeposito.has(cliente.transporte_id)) {
@@ -348,7 +355,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
         <div style="background:#0d1e0d;border:1px solid #1a361a;padding:12px 16px;margin-bottom:8px;border-radius:2px;display:flex;align-items:center;gap:12px;opacity:.8">
           <div style="flex:1">
             <div style="font-size:13px;color:#52c452;font-weight:500">${r.cliente_nombre}</div>
-            <div style="font-size:11px;color:#2a5a2a;margin-top:2px">${r.nota_pedido} · Retirado: ${r.hora_retiro || '—'}</div>
+            <div style="font-size:11px;color:#2a5a2a;margin-top:2px">${r.nota_pedido}${r.transporte_nombre ? ' · ' + r.transporte_nombre : ''} · Retirado: ${r.hora_retiro || '—'}</div>
           </div>
           <span class="badge badge-ok" style="font-size:9px">✓ Retirado</span>
         </div>`).join('')
@@ -389,7 +396,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
                   ${!isObserver && p.estado === 'pendiente' && !p.observaciones && r.estado === 'en-ruta' ? `
                     <button class="btn-sm green" data-entregar="${p.id}"><i class="ti ti-check"></i> Entregado</button>
                     <button class="btn-sm" style="border-color:#3a1a1a;color:#e05555" data-no-entregar="${p.id}"><i class="ti ti-x"></i> No entregado</button>
-                  ` : p.estado === 'entregado' ? `<span class="badge badge-ok" style="font-size:9px">✓ ${p.hora_entrega || ''}</span>` 
+                  ` : p.estado === 'entregado' ? `<span class="badge badge-ok" style="font-size:9px">✓ ${p.hora_entrega || ''}</span>`
                     : p.observaciones ? `<span class="badge" style="background:#2a0a0a;color:#e05555;font-size:9px">✗ Rechazado</span>` : ''}
                 </div>
               </div>
