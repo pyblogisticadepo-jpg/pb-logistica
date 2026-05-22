@@ -7,7 +7,7 @@ export async function renderResumen(el, { supabase, currentUser }) {
     <div class="date-picker-row">
       <span class="date-picker-label">Fecha</span>
       <input type="date" class="date-picker-input" id="resumen-date" value="${today}">
-      <span style="font-size:11px;color:#333" id="resumen-hoy-label">(hoy)</span>
+      <span style="font-size:11px;color:#555" id="resumen-hoy-label">(hoy)</span>
     </div>
     <div class="section-label" style="margin-top:0">Pedidos del día</div>
     <div id="resumen-table-wrap"><div class="loading">Cargando...</div></div>
@@ -42,30 +42,39 @@ export async function renderResumen(el, { supabase, currentUser }) {
     wrap.innerHTML = '<div class="loading">Cargando...</div>'
 
     const { data: recorridos } = await supabase
-      .from('recorridos')
-      .select('*, recorrido_pedidos(*)')
-      .eq('fecha', fecha)
+      .from('recorridos').select('*, recorrido_pedidos(*)').eq('fecha', fecha)
 
     const { data: retiras } = await supabase
-      .from('retiras')
-      .select('*')
-      .eq('fecha', fecha)
+      .from('retiras').select('*').eq('fecha', fecha)
 
-    // Traer clientes para los retiros pendientes
     const { data: allPicking } = await supabase
       .from('picking')
       .select('*, clientes(transporte_tipo, transporte_id, transportes(nombre, retira_deposito))')
       .eq('estado', 'habilitado')
 
-    const notasEnRecorrido = (recorridos || []).flatMap(r => r.recorrido_pedidos.map(p => p.nota_pedido))
-    const notasRetiradas = (retiras || []).map(r => r.nota_pedido)
+    // Notas ya en recorridos activos
+    const { data: todosEntregados } = await supabase
+      .from('recorrido_pedidos').select('nota_pedido').eq('estado', 'entregado')
+    const notasYaEntregadas = new Set((todosEntregados || []).map(p => p.nota_pedido))
 
-    const retirosPendientes = (allPicking || []).filter(p => {
-      const tipo = p.clientes?.transporte_tipo
-      if (tipo === 'retira') return !notasRetiradas.includes(p.nota_pedido)
-      if (tipo === 'externo' && p.clientes?.transportes?.retira_deposito) return !notasRetiradas.includes(p.nota_pedido)
-      return false
+    const notasEnRecorridoActivo = (recorridos || [])
+      .filter(r => r.estado !== 'completado')
+      .flatMap(r => r.recorrido_pedidos.map(p => p.nota_pedido))
+
+    const notasRetiradas = new Set((retiras || []).map(r => r.nota_pedido))
+
+    // Todos los habilitados pendientes (ni en recorrido activo, ni entregados, ni retirados)
+    const { data: todasRetirasBD } = await supabase.from('retiras').select('nota_pedido')
+    const todasNotasRetiradas = new Set((todasRetirasBD || []).map(r => r.nota_pedido))
+
+    const habilitadosPendientes = (allPicking || []).filter(p => {
+      if (notasYaEntregadas.has(p.nota_pedido)) return false
+      if (notasEnRecorridoActivo.includes(p.nota_pedido)) return false
+      if (todasNotasRetiradas.has(p.nota_pedido)) return false
+      return true
     })
+
+    const notasEnRecorrido = (recorridos || []).flatMap(r => r.recorrido_pedidos.map(p => p.nota_pedido))
 
     const todos = [
       // Pedidos en recorridos
@@ -105,20 +114,28 @@ export async function renderResumen(el, { supabase, currentUser }) {
         transporteRetira: r.transporte_nombre || null,
         _tipo: 'retira'
       })),
-      // Retiros pendientes
-      ...retirosPendientes.map(p => ({
-        id: p.id,
-        cliente: p.cliente_nombre,
-        nota: p.nota_pedido,
-        tipo: 'retira',
-        tipoLabel: p.clientes?.transporte_tipo === 'retira' ? 'Retira cliente' : `Retira ${p.clientes?.transportes?.nombre || 'transporte'}`,
-        operario: '—',
-        estado: 'pendiente',
-        horaEntrega: null,
-        recorrido: '—',
-        documentacion: p.documentacion,
-        _tipo: 'retira_pendiente'
-      }))
+      // Habilitados pendientes (sin recorrido, sin retirar)
+      ...habilitadosPendientes.map(p => {
+        const tipo = p.clientes?.transporte_tipo
+        const esRetira = tipo === 'retira' || (tipo === 'externo' && p.clientes?.transportes?.retira_deposito)
+        const tipoLabel = esRetira
+          ? (tipo === 'retira' ? 'Retira cliente' : `Retira ${p.clientes?.transportes?.nombre || 'transporte'}`)
+          : (tipo === 'pyb' ? 'Entrega P&B' : 'Transp. ext.')
+        return {
+          id: p.id,
+          cliente: p.cliente_nombre,
+          nota: p.nota_pedido,
+          tipo: esRetira ? 'retira' : tipo || 'pyb',
+          tipoLabel,
+          operario: '—',
+          estado: 'pendiente',
+          horaEntrega: null,
+          recorrido: '—',
+          documentacion: p.documentacion,
+          bultos: p.bultos,
+          _tipo: esRetira ? 'retira_pendiente' : 'entrega_pendiente'
+        }
+      })
     ]
 
     if (todos.length === 0) {
@@ -148,10 +165,10 @@ export async function renderResumen(el, { supabase, currentUser }) {
               ${p.estado === 'entregado' ? '<span class="badge badge-entregado">Entregado</span>' :
                 p.estado === 'reparto' ? '<span class="badge badge-reparto">En reparto</span>' :
                 p.estado === 'rechazado' ? '<span class="badge" style="background:#2a0a0a;color:#e05555">Rechazado</span>' :
-                '<span class="badge badge-pendiente">Pend. retiro</span>'}
+                '<span class="badge badge-pendiente">Pendiente</span>'}
             </td>
             <td style="font-family:'DM Mono',monospace;color:${p.horaEntrega ? '#52c452' : '#2a2a2a'}">${p.horaEntrega || '—'}</td>
-            <td style="font-family:'DM Mono',monospace;font-size:11px;color:#444">${p.recorrido}</td>
+            <td style="font-family:'DM Mono',monospace;font-size:11px;color:#555">${p.recorrido}</td>
             <td><button class="btn-sm primary" data-detalle='${JSON.stringify(p).replace(/'/g, "&#39;")}' ><i class="ti ti-eye"></i></button></td>
           </tr>`).join('')}
         </tbody>
@@ -165,11 +182,11 @@ export async function renderResumen(el, { supabase, currentUser }) {
     })
 
     el.querySelector('#resumen-stats').innerHTML = `
-      <div class="stat-card"><div class="stat-label">Total pedidos</div><div class="stat-value">${todos.length}</div></div>
+      <div class="stat-card"><div class="stat-label">Total</div><div class="stat-value">${todos.length}</div></div>
       <div class="stat-card"><div class="stat-label">Entregados</div><div class="stat-value">${entregados}</div></div>
       <div class="stat-card"><div class="stat-label">En reparto</div><div class="stat-value">${enReparto}</div></div>
       <div class="stat-card"><div class="stat-label">Rechazados</div><div class="stat-value" style="color:${rechazados > 0 ? '#e05555' : 'inherit'}">${rechazados}</div></div>
-      <div class="stat-card"><div class="stat-label">Pend. retiro</div><div class="stat-value">${pendientes}</div></div>`
+      <div class="stat-card"><div class="stat-label">Pendientes</div><div class="stat-value" style="color:${pendientes > 0 ? '#d4a830' : 'inherit'}">${pendientes}</div></div>`
   }
 
   function mostrarDetalle(p) {
@@ -203,12 +220,13 @@ export async function renderResumen(el, { supabase, currentUser }) {
           <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Documentación</div><div style="color:#888">${p.documentacion === 'fac_remito' ? 'Fac. y Remito' : p.documentacion === 'fac_etiqueta' ? 'Fac. y Etiqueta' : p.documentacion || '—'}</div></div>
           ${p.transporteRetira ? `<div style="grid-column:span 2"><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Transporte que retiró</div><div style="color:#d4a830">${p.transporteRetira}</div></div>` : ''}
         </div>`
-    } else if (p._tipo === 'retira_pendiente') {
+    } else {
       html = `
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
-          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Tipo</div><div><span class="badge badge-retira">${p.tipoLabel}</span></div></div>
-          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Estado</div><div><span class="badge badge-pendiente">Pendiente retiro</span></div></div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Tipo</div><div><span class="badge ${p.tipo === 'retira' ? 'badge-retira' : 'badge-pyb'}">${p.tipoLabel}</span></div></div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Estado</div><div><span class="badge badge-pendiente">Pendiente</span></div></div>
           <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Documentación</div><div style="color:#888">${p.documentacion === 'fac_remito' ? 'Fac. y Remito' : p.documentacion === 'fac_etiqueta' ? 'Fac. y Etiqueta' : p.documentacion || '—'}</div></div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Bultos</div><div style="font-family:'DM Mono',monospace;color:#d4a830;font-size:16px">${p.bultos || '—'}</div></div>
         </div>`
     }
 
