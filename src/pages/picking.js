@@ -7,13 +7,16 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     <div class="search-bar">
       <input class="search-input" id="pk-search" placeholder="Buscar por cliente, nota o código...">
       <select class="filter-select" id="pk-filter">
-        <option value="">Todos</option>
+        <option value="">Todos los estados</option>
         <option value="preparacion">En preparación</option>
         <option value="armado">Armado</option>
         <option value="habilitado">Habilitado</option>
         <option value="cancelado">Cancelados</option>
       </select>
+      <input type="date" class="date-picker-input" id="pk-fecha" placeholder="Fecha">
+      <button class="btn-sm" id="pk-limpiar-fecha" style="display:none"><i class="ti ti-x"></i> Hoy</button>
     </div>
+    <div id="pk-resumen-dia" style="display:none;margin-bottom:16px;"></div>
     <div id="picking-table-wrap"><div class="loading">Cargando...</div></div>
 
     <div class="modal-overlay" id="modal-pk1">
@@ -233,12 +236,12 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     if (q.length < 1) { dropdown.style.display = 'none'; return }
     const filtrados = clientes.filter(c => c.nombre.toLowerCase().includes(q)).slice(0, 8)
     if (filtrados.length === 0) {
-      dropdown.innerHTML = `<div style="padding:10px 14px;font-size:12px;color:#444">No encontrado — se creará como nuevo cliente</div>`
+      dropdown.innerHTML = `<div style="padding:10px 14px;font-size:12px;color:#555">No encontrado — se creará como nuevo cliente</div>`
     } else {
       dropdown.innerHTML = filtrados.map(c => `
-        <div data-id="${c.id}" data-nombre="${c.nombre}" style="padding:10px 14px;font-size:13px;color:#ccc;cursor:pointer;border-bottom:1px solid #1a1a1a;">
+        <div data-id="${c.id}" data-nombre="${c.nombre}" style="padding:10px 14px;font-size:13px;color:#ccc;cursor:pointer;border-bottom:1px solid #1e1e1e;">
           ${c.nombre}
-          ${c.direccion ? `<div style="font-size:11px;color:#444;margin-top:2px">${c.direccion}</div>` : '<div style="font-size:11px;color:#333;margin-top:2px">Sin dirección</div>'}
+          ${c.direccion ? `<div style="font-size:11px;color:#666;margin-top:2px">${c.direccion}</div>` : '<div style="font-size:11px;color:#555;margin-top:2px">Sin dirección</div>'}
         </div>`).join('')
     }
     dropdown.style.display = 'block'
@@ -293,13 +296,48 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     allPicking = pk || []
     clientes = cl || []
     profiles = pr || []
-    renderTable(allPicking)
+    filter()
   }
 
   function formatTiempo(secs) {
     if (!secs || secs === 0) return '—'
     const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60
     return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+  }
+
+  function renderResumenDia(lista) {
+    const resumenDiv = el.querySelector('#pk-resumen-dia')
+    const fecha = el.querySelector('#pk-fecha').value
+    if (!fecha) { resumenDiv.style.display = 'none'; return }
+    const activos = lista.filter(p => p.estado !== 'cancelado')
+    const totalLineas = activos.reduce((a, p) => a + (p.lineas || 0), 0)
+    const totalBultos = activos.reduce((a, p) => a + (p.bultos || 0), 0)
+    const habilitados = activos.filter(p => p.estado === 'habilitado').length
+    const cancelados = lista.filter(p => p.estado === 'cancelado').length
+    resumenDiv.style.display = 'block'
+    resumenDiv.innerHTML = `
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:4px;">
+        <div class="stat-card" style="flex:1;min-width:100px;padding:12px 16px;">
+          <div class="stat-label">Pedidos</div>
+          <div class="stat-value" style="font-size:22px">${activos.length}</div>
+        </div>
+        <div class="stat-card" style="flex:1;min-width:100px;padding:12px 16px;">
+          <div class="stat-label">Líneas</div>
+          <div class="stat-value" style="font-size:22px">${totalLineas}</div>
+        </div>
+        <div class="stat-card" style="flex:1;min-width:100px;padding:12px 16px;">
+          <div class="stat-label">Bultos</div>
+          <div class="stat-value" style="font-size:22px;color:#d4a830">${totalBultos || '—'}</div>
+        </div>
+        <div class="stat-card" style="flex:1;min-width:100px;padding:12px 16px;">
+          <div class="stat-label">Habilitados</div>
+          <div class="stat-value" style="font-size:22px;color:#52c452">${habilitados}</div>
+        </div>
+        ${cancelados > 0 ? `<div class="stat-card" style="flex:1;min-width:100px;padding:12px 16px;">
+          <div class="stat-label">Cancelados</div>
+          <div class="stat-value" style="font-size:22px;color:#e05555">${cancelados}</div>
+        </div>` : ''}
+      </div>`
   }
 
   function renderTable(lista) {
@@ -312,14 +350,14 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
         const tiempo = formatTiempo(p.timer_secs)
         const cancelado = p.estado === 'cancelado'
         return `<tr style="${cancelado ? 'opacity:0.5' : ''}">
-          <td style="font-family:'DM Mono',monospace;color:${cancelado ? '#444' : '#5aadee'};font-size:11px;font-weight:600">${p.codigo_interno || '—'}</td>
-          <td style="font-family:'DM Mono',monospace;color:#444;font-size:11px">${p.nota_pedido}</td>
-          <td style="color:${cancelado ? '#444' : '#ccc'}">${p.cliente_nombre}</td>
+          <td style="font-family:'DM Mono',monospace;color:${cancelado ? '#555' : '#5aadee'};font-size:11px;font-weight:600">${p.codigo_interno || '—'}</td>
+          <td style="font-family:'DM Mono',monospace;color:#666;font-size:11px">${p.nota_pedido}</td>
+          <td style="color:${cancelado ? '#555' : '#ccc'}">${p.cliente_nombre}</td>
           <td>${ESTADO_HTML[p.estado] || p.estado}</td>
-          <td>${p.documentacion ? `<span class="badge badge-armado" style="font-size:9px">${DOC_LABEL[p.documentacion]}</span>` : '<span style="color:#2a2a2a">—</span>'}</td>
+          <td>${p.documentacion ? `<span class="badge badge-armado" style="font-size:9px">${DOC_LABEL[p.documentacion]}</span>` : '<span style="color:#444">—</span>'}</td>
           <td style="font-family:'DM Mono',monospace">${p.lineas}</td>
-          <td style="font-family:'DM Mono',monospace;color:${p.bultos ? '#d4a830' : '#2a2a2a'}">${p.bultos || '—'}</td>
-          <td style="color:#666;font-size:12px">${p.operario_arma || '<span style="color:#2a2a2a">—</span>'}</td>
+          <td style="font-family:'DM Mono',monospace;color:${p.bultos ? '#d4a830' : '#444'}">${p.bultos || '—'}</td>
+          <td style="color:#888;font-size:12px">${p.operario_arma || '<span style="color:#444">—</span>'}</td>
           <td style="font-family:'DM Mono',monospace;color:#d4a830;font-size:12px">${tiempo}</td>
           <td style="font-size:11px;color:#888">${p.fecha || new Date(p.hora_registro).toLocaleDateString('es-AR')}</td>
           <td><button class="btn-sm primary" data-id="${p.id}"><i class="ti ti-eye"></i></button></td>
@@ -355,26 +393,25 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
 
     el.querySelector('#pk-detalle-body').innerHTML = `
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
-        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Código interno</div><div style="font-family:'DM Mono',monospace;color:#5aadee">${p.codigo_interno || '—'}</div></div>
-        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">NP Sistema</div><div style="font-family:'DM Mono',monospace;color:#555">${p.nota_pedido}</div></div>
-        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Estado</div><div>${ESTADO_HTML[p.estado] || p.estado}</div></div>
-        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Líneas</div><div style="font-family:'DM Mono',monospace;color:#ccc;font-size:18px">${p.lineas}</div></div>
-        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Bultos</div><div style="font-family:'DM Mono',monospace;color:#d4a830;font-size:18px">${p.bultos || '—'}</div></div>
-        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Documentación</div><div>${p.documentacion ? `<span class="badge badge-armado" style="font-size:9px">${DOC_LABEL[p.documentacion]}</span>` : '<span style="color:#2a2a2a">—</span>'}</div></div>
-        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Operario arma</div><div style="color:#ccc">${p.operario_arma || '—'}</div></div>
-        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Operario controla</div><div style="color:#ccc">${p.operario_controla || '—'}</div></div>
-        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Hora inicio</div><div style="font-family:'DM Mono',monospace;color:#888">${p.hora_inicio || '—'}</div></div>
-        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Hora fin</div><div style="font-family:'DM Mono',monospace;color:#888">${p.hora_fin || '—'}</div></div>
-        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Tiempo total</div><div style="font-family:'DM Mono',monospace;color:#d4a830">${formatTiempo(p.timer_secs)}</div></div>
-        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Líneas/min</div><div style="font-family:'DM Mono',monospace;color:#5aadee">${lpm}</div></div>
-        <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Errores</div><div style="font-family:'DM Mono',monospace;color:${p.error_count > 0 ? '#ff6b2b' : '#2a2a2a'}">${p.error_count || 0}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Código interno</div><div style="font-family:'DM Mono',monospace;color:#5aadee">${p.codigo_interno || '—'}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">NP Sistema</div><div style="font-family:'DM Mono',monospace;color:#888">${p.nota_pedido}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Estado</div><div>${ESTADO_HTML[p.estado] || p.estado}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Líneas</div><div style="font-family:'DM Mono',monospace;color:#ccc;font-size:18px">${p.lineas}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Bultos</div><div style="font-family:'DM Mono',monospace;color:#d4a830;font-size:18px">${p.bultos || '—'}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Documentación</div><div>${p.documentacion ? `<span class="badge badge-armado" style="font-size:9px">${DOC_LABEL[p.documentacion]}</span>` : '<span style="color:#444">—</span>'}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Operario arma</div><div style="color:#ccc">${p.operario_arma || '—'}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Operario controla</div><div style="color:#ccc">${p.operario_controla || '—'}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Hora inicio</div><div style="font-family:'DM Mono',monospace;color:#aaa">${p.hora_inicio || '—'}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Hora fin</div><div style="font-family:'DM Mono',monospace;color:#aaa">${p.hora_fin || '—'}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Tiempo total</div><div style="font-family:'DM Mono',monospace;color:#d4a830">${formatTiempo(p.timer_secs)}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Líneas/min</div><div style="font-family:'DM Mono',monospace;color:#5aadee">${lpm}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Errores</div><div style="font-family:'DM Mono',monospace;color:${p.error_count > 0 ? '#ff6b2b' : '#444'}">${p.error_count || 0}</div></div>
       </div>
       ${p.observaciones_cancelado ? `<div style="background:#1f0d0d;border:1px solid #3a1a1a;padding:10px 14px;border-radius:2px;font-size:12px;color:#e05555;margin-bottom:12px"><i class="ti ti-ban" style="font-size:11px"></i> ${p.observaciones_cancelado}</div>` : ''}
-      <div style="font-size:11px;color:#333;border-top:1px solid #1a1a1a;padding-top:10px">
+      <div style="font-size:11px;color:#555;border-top:1px solid #1e1e1e;padding-top:10px">
         Registrado: ${new Date(p.hora_registro).toLocaleString('es-AR')}
       </div>`
 
-    // Botón avanzar paso
     const btnAvanzar = el.querySelector('#btn-avanzar-paso')
     const btnAvanzarLabel = el.querySelector('#btn-avanzar-label')
     if (!cancelado && !isObserver && (p.estado === 'preparacion' || p.estado === 'armado')) {
@@ -384,7 +421,6 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
       btnAvanzar.style.display = 'none'
     }
 
-    // Botón cancelar
     const btnCancel = el.querySelector('#btn-cancelar-picking')
     if (puedeCancel && !yaFinalizado) {
       btnCancel.style.display = 'block'
@@ -489,15 +525,36 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     await load()
   }
 
+  // Filtro de fecha
+  el.querySelector('#pk-fecha').onchange = () => {
+    const fecha = el.querySelector('#pk-fecha').value
+    el.querySelector('#pk-limpiar-fecha').style.display = fecha ? 'flex' : 'none'
+    filter()
+  }
+
+  el.querySelector('#pk-limpiar-fecha').onclick = () => {
+    el.querySelector('#pk-fecha').value = ''
+    el.querySelector('#pk-limpiar-fecha').style.display = 'none'
+    filter()
+  }
+
   el.querySelector('#pk-search').oninput = filter
   el.querySelector('#pk-filter').onchange = filter
+
   function filter() {
     const q = el.querySelector('#pk-search').value.toLowerCase()
     const f = el.querySelector('#pk-filter').value
-    renderTable(allPicking.filter(p =>
-      (p.nota_pedido.toLowerCase().includes(q) || p.cliente_nombre.toLowerCase().includes(q) || (p.codigo_interno || '').toLowerCase().includes(q)) &&
-      (f === '' ? p.estado !== 'cancelado' : p.estado === f)
-    ))
+    const fecha = el.querySelector('#pk-fecha').value
+
+    let lista = allPicking.filter(p => {
+      const matchQ = p.nota_pedido.toLowerCase().includes(q) || p.cliente_nombre.toLowerCase().includes(q) || (p.codigo_interno || '').toLowerCase().includes(q)
+      const matchF = f === '' ? p.estado !== 'cancelado' : p.estado === f
+      const matchFecha = !fecha ? true : (p.fecha === fecha || new Date(p.hora_registro).toISOString().split('T')[0] === fecha)
+      return matchQ && matchF && matchFecha
+    })
+
+    renderResumenDia(lista)
+    renderTable(lista)
   }
 
   await load()
