@@ -52,19 +52,24 @@ export async function renderResumen(el, { supabase, currentUser }) {
       .select('*, clientes(transporte_tipo, transporte_id, transportes(nombre, retira_deposito))')
       .eq('estado', 'habilitado')
 
-    // Notas ya en recorridos activos
+    // Traer bultos de picking por codigo_interno
+    const { data: todosPicking } = await supabase
+      .from('picking').select('codigo_interno, nota_pedido, bultos')
+    const bultosMap = {}
+    ;(todosPicking || []).forEach(p => {
+      if (p.codigo_interno) bultosMap[p.codigo_interno] = p.bultos
+      if (p.nota_pedido) bultosMap[p.nota_pedido] = bultosMap[p.nota_pedido] || p.bultos
+    })
+
     const { data: todosEntregados } = await supabase
-      .from('recorrido_pedidos').select('nota_pedido').eq('estado', 'entregado')
+      .from('recorrido_pedidos').select('nota_pedido, codigo_interno').eq('estado', 'entregado')
     const notasYaEntregadas = new Set((todosEntregados || []).map(p => p.nota_pedido))
 
     const notasEnRecorridoActivo = (recorridos || [])
       .filter(r => r.estado !== 'completado')
       .flatMap(r => r.recorrido_pedidos.map(p => p.nota_pedido))
 
-    const notasRetiradas = new Set((retiras || []).map(r => r.nota_pedido))
-
-    // Todos los habilitados pendientes (ni en recorrido activo, ni entregados, ni retirados)
-    const { data: todasRetirasBD } = await supabase.from('retiras').select('nota_pedido')
+    const { data: todasRetirasBD } = await supabase.from('retiras').select('nota_pedido, codigo_interno')
     const todasNotasRetiradas = new Set((todasRetirasBD || []).map(r => r.nota_pedido))
 
     const habilitadosPendientes = (allPicking || []).filter(p => {
@@ -74,16 +79,15 @@ export async function renderResumen(el, { supabase, currentUser }) {
       return true
     })
 
-    const notasEnRecorrido = (recorridos || []).flatMap(r => r.recorrido_pedidos.map(p => p.nota_pedido))
-
     const todos = [
-      // Pedidos en recorridos
       ...(recorridos || []).flatMap(r => r.recorrido_pedidos.map(p => {
         const rechazado = p.estado === 'pendiente' && p.observaciones
+        const bultos = bultosMap[p.codigo_interno] || bultosMap[p.nota_pedido] || null
         return {
           id: p.id,
           cliente: p.cliente_nombre,
           nota: p.nota_pedido,
+          codigoInterno: p.codigo_interno,
           tipo: p.tipo === 'pyb' ? 'pyb' : 'externo',
           tipoLabel: p.tipo === 'pyb' ? 'Entrega P&B' : 'Transp. ext.',
           operario: r.operario,
@@ -96,14 +100,15 @@ export async function renderResumen(el, { supabase, currentUser }) {
           horaSalida: r.hora_salida,
           observaciones: p.observaciones,
           direccion: p.direccion,
+          bultos,
           _tipo: 'recorrido'
         }
       })),
-      // Retirados hoy
       ...(retiras || []).map(r => ({
         id: r.id,
         cliente: r.cliente_nombre,
         nota: r.nota_pedido,
+        codigoInterno: r.codigo_interno,
         tipo: 'retira',
         tipoLabel: 'Retiro',
         operario: '—',
@@ -112,9 +117,9 @@ export async function renderResumen(el, { supabase, currentUser }) {
         recorrido: '—',
         documentacion: r.documentacion,
         transporteRetira: r.transporte_nombre || null,
+        bultos: bultosMap[r.codigo_interno] || bultosMap[r.nota_pedido] || null,
         _tipo: 'retira'
       })),
-      // Habilitados pendientes (sin recorrido, sin retirar)
       ...habilitadosPendientes.map(p => {
         const tipo = p.clientes?.transporte_tipo
         const esRetira = tipo === 'retira' || (tipo === 'externo' && p.clientes?.transportes?.retira_deposito)
@@ -125,6 +130,7 @@ export async function renderResumen(el, { supabase, currentUser }) {
           id: p.id,
           cliente: p.cliente_nombre,
           nota: p.nota_pedido,
+          codigoInterno: p.codigo_interno,
           tipo: esRetira ? 'retira' : tipo || 'pyb',
           tipoLabel,
           operario: '—',
@@ -148,10 +154,11 @@ export async function renderResumen(el, { supabase, currentUser }) {
     const enReparto = todos.filter(p => p.estado === 'reparto').length
     const rechazados = todos.filter(p => p.estado === 'rechazado').length
     const pendientes = todos.filter(p => p.estado === 'pendiente').length
+    const totalBultos = todos.reduce((a, p) => a + (p.bultos || 0), 0)
 
     wrap.innerHTML = `
       <table class="data-table">
-        <thead><tr><th>Cliente</th><th>Tipo</th><th>Operario</th><th>Estado</th><th>Hora</th><th>Recorrido</th><th></th></tr></thead>
+        <thead><tr><th>Cliente</th><th>Tipo</th><th>Bultos</th><th>Operario</th><th>Estado</th><th>Hora</th><th>Recorrido</th><th></th></tr></thead>
         <tbody>${todos.map(p => `
           <tr>
             <td style="color:#ccc;font-weight:500">${p.cliente}</td>
@@ -160,6 +167,7 @@ export async function renderResumen(el, { supabase, currentUser }) {
                 p.tipo === 'retira' ? `<span class="badge badge-retira">${p.tipoLabel}</span>` :
                 '<span class="badge badge-externo">Transp. ext.</span>'}
             </td>
+            <td style="font-family:'DM Mono',monospace;color:${p.bultos ? '#d4a830' : '#2a2a2a'};font-size:12px">${p.bultos || '—'}</td>
             <td style="color:#555">${p.operario}</td>
             <td>
               ${p.estado === 'entregado' ? '<span class="badge badge-entregado">Entregado</span>' :
@@ -183,6 +191,7 @@ export async function renderResumen(el, { supabase, currentUser }) {
 
     el.querySelector('#resumen-stats').innerHTML = `
       <div class="stat-card"><div class="stat-label">Total</div><div class="stat-value">${todos.length}</div></div>
+      <div class="stat-card"><div class="stat-label">Bultos</div><div class="stat-value" style="color:#d4a830">${totalBultos}</div></div>
       <div class="stat-card"><div class="stat-label">Entregados</div><div class="stat-value">${entregados}</div></div>
       <div class="stat-card"><div class="stat-label">En reparto</div><div class="stat-value">${enReparto}</div></div>
       <div class="stat-card"><div class="stat-label">Rechazados</div><div class="stat-value" style="color:${rechazados > 0 ? '#e05555' : 'inherit'}">${rechazados}</div></div>
@@ -208,6 +217,7 @@ export async function renderResumen(el, { supabase, currentUser }) {
           <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Hora entrega</div><div style="font-family:'DM Mono',monospace;color:${p.horaEntrega ? '#52c452' : '#2a2a2a'}">${p.horaEntrega || '—'}</div></div>
           <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Km salida</div><div style="font-family:'DM Mono',monospace;color:#888">${p.kmSalida || '—'}</div></div>
           <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Km regreso</div><div style="font-family:'DM Mono',monospace;color:#888">${p.kmRegreso || '—'}</div></div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Bultos</div><div style="font-family:'DM Mono',monospace;color:#d4a830;font-size:18px">${p.bultos || '—'}</div></div>
         </div>
         ${p.direccion ? `<div style="background:#111;border:1px solid #1e1e1e;padding:10px 14px;border-radius:2px;font-size:12px;color:#555;margin-bottom:12px"><i class="ti ti-map-pin" style="font-size:11px"></i> ${p.direccion}</div>` : ''}
         ${p.observaciones ? `<div style="background:#1f0d0d;border:1px solid #3a1a1a;padding:10px 14px;border-radius:2px;font-size:12px;color:#e05555;margin-bottom:12px"><i class="ti ti-alert-circle" style="font-size:11px"></i> ${p.observaciones}</div>` : ''}`
@@ -217,8 +227,9 @@ export async function renderResumen(el, { supabase, currentUser }) {
           <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Tipo</div><div><span class="badge badge-retira">${p.tipoLabel}</span></div></div>
           <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Estado</div><div><span class="badge badge-entregado">Retirado</span></div></div>
           <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Hora retiro</div><div style="font-family:'DM Mono',monospace;color:${p.horaEntrega ? '#52c452' : '#2a2a2a'}">${p.horaEntrega || '—'}</div></div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Bultos</div><div style="font-family:'DM Mono',monospace;color:#d4a830;font-size:18px">${p.bultos || '—'}</div></div>
           <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Documentación</div><div style="color:#888">${p.documentacion === 'fac_remito' ? 'Fac. y Remito' : p.documentacion === 'fac_etiqueta' ? 'Fac. y Etiqueta' : p.documentacion || '—'}</div></div>
-          ${p.transporteRetira ? `<div style="grid-column:span 2"><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Transporte que retiró</div><div style="color:#d4a830">${p.transporteRetira}</div></div>` : ''}
+          ${p.transporteRetira ? `<div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Transporte</div><div style="color:#d4a830">${p.transporteRetira}</div></div>` : ''}
         </div>`
     } else {
       html = `
@@ -226,7 +237,7 @@ export async function renderResumen(el, { supabase, currentUser }) {
           <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Tipo</div><div><span class="badge ${p.tipo === 'retira' ? 'badge-retira' : 'badge-pyb'}">${p.tipoLabel}</span></div></div>
           <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Estado</div><div><span class="badge badge-pendiente">Pendiente</span></div></div>
           <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Documentación</div><div style="color:#888">${p.documentacion === 'fac_remito' ? 'Fac. y Remito' : p.documentacion === 'fac_etiqueta' ? 'Fac. y Etiqueta' : p.documentacion || '—'}</div></div>
-          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Bultos</div><div style="font-family:'DM Mono',monospace;color:#d4a830;font-size:16px">${p.bultos || '—'}</div></div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Bultos</div><div style="font-family:'DM Mono',monospace;color:#d4a830;font-size:18px">${p.bultos || '—'}</div></div>
         </div>`
     }
 
