@@ -23,6 +23,10 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
         <div class="modal-header"><span class="modal-title" id="modal-client-title">Nuevo cliente</span><button class="modal-close" id="close-client-modal"><i class="ti ti-x"></i></button></div>
         <div class="modal-body">
           <div class="form-row"><label class="form-label">Nombre <span class="req">*</span></label><input class="form-input" id="c-nombre" placeholder="Nombre del cliente"></div>
+          <div class="form-row-2">
+            <div><label class="form-label">CUIT</label><input class="form-input" id="c-cuit" placeholder="Ej: 20-12345678-9"></div>
+            <div><label class="form-label">Nº cliente Manager</label><input class="form-input" id="c-manager" placeholder="Ej: 4521"></div>
+          </div>
           <div class="form-row"><label class="form-label">Dirección</label><input class="form-input" id="c-dir" placeholder="Dirección de entrega"><div class="form-hint">Requerida para habilitar reparto en Entrega P&B</div></div>
           <div class="form-row-2">
             <div><label class="form-label">Horario</label><input class="form-input" id="c-horario" placeholder="Lun–Vie 8–17hs"></div>
@@ -78,7 +82,6 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
     const { data } = await supabase.from('clientes').select('*').order('nombre')
     allClientes = data || []
 
-    // Enrich with transporte data
     const transpIds = [...new Set(allClientes.map(c => c.transporte_id).filter(Boolean))]
     let transpMap = {}
     if (transpIds.length > 0) {
@@ -115,8 +118,8 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
     if (c.transporte_tipo === 'retira') return true
     if (c.transporte_tipo === 'pyb') return !!c.direccion
     if (c.transporte_tipo === 'externo') {
-      if (c._retira_deposito) return true  // retira en depósito siempre habilitado
-      return !!c._transporte_nombre        // externo habilitado si tiene transporte asignado
+      if (c._retira_deposito) return true
+      return !!c._transporte_nombre
     }
     return false
   }
@@ -126,11 +129,13 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
     const wrap = el.querySelector('#clientes-table-wrap')
     if (lista.length === 0) { wrap.innerHTML = '<div class="empty-state">Sin clientes</div>'; return }
     wrap.innerHTML = `<table class="data-table">
-      <thead><tr><th>Cliente</th><th>Dirección</th><th>Transporte habitual</th><th>Hab. reparto</th>${canEdit ? '<th></th>' : ''}</tr></thead>
+      <thead><tr><th>Cliente</th><th>Nº Manager</th><th>CUIT</th><th>Dirección</th><th>Transporte</th><th>Hab.</th>${canEdit ? '<th></th>' : ''}</tr></thead>
       <tbody>${lista.map(c => {
         const hab = isHabilitado(c)
         return `<tr>
           <td style="color:#ccc;font-weight:500">${c.nombre}</td>
+          <td style="font-family:'DM Mono',monospace;color:#5aadee;font-size:12px">${c.nro_manager || '<span style="color:#2a2a2a">—</span>'}</td>
+          <td style="font-family:'DM Mono',monospace;color:#555;font-size:12px">${c.cuit || '<span style="color:#2a2a2a">—</span>'}</td>
           <td>${c.direccion || '<span style="color:#2a2a2a;font-style:italic">Sin cargar</span>'}</td>
           <td style="color:#666;font-size:12px">${getTransporteLabel(c)}</td>
           <td>${hab ? '<span class="badge badge-ok">Habilitado</span>' : '<span class="badge badge-warn">Sin dirección</span>'}</td>
@@ -150,6 +155,8 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
     editingId = id
     el.querySelector('#modal-client-title').textContent = 'Editar — ' + c.nombre
     el.querySelector('#c-nombre').value = c.nombre
+    el.querySelector('#c-cuit').value = c.cuit || ''
+    el.querySelector('#c-manager').value = c.nro_manager || ''
     el.querySelector('#c-dir').value = c.direccion || ''
     el.querySelector('#c-horario').value = c.horario || ''
     el.querySelector('#c-tel').value = c.telefono || ''
@@ -168,6 +175,8 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
     if (tipo === 'externo' && !transporteId) { alert('Seleccioná un transporte externo'); return }
     const payload = {
       nombre,
+      cuit: el.querySelector('#c-cuit').value.trim() || null,
+      nro_manager: el.querySelector('#c-manager').value.trim() || null,
       direccion: el.querySelector('#c-dir').value.trim() || null,
       horario: el.querySelector('#c-horario').value.trim() || null,
       telefono: el.querySelector('#c-tel').value.trim() || null,
@@ -190,7 +199,7 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
     el.querySelector('#btn-new-client').onclick = () => {
       editingId = null
       el.querySelector('#modal-client-title').textContent = 'Nuevo cliente'
-      ;['c-nombre','c-dir','c-horario','c-tel','c-aclar'].forEach(id => { el.querySelector('#'+id).value = '' })
+      ;['c-nombre','c-cuit','c-manager','c-dir','c-horario','c-tel','c-aclar'].forEach(id => { el.querySelector('#'+id).value = '' })
       tipoSel.value = 'pyb'
       tipoSel.dispatchEvent(new Event('change'))
       modal.classList.add('open')
@@ -204,7 +213,7 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
     const q = el.querySelector('#client-search').value.toLowerCase()
     const f = el.querySelector('#client-filter').value
     renderTable(allClientes.filter(c =>
-      (c.nombre.toLowerCase().includes(q) || (c.direccion || '').toLowerCase().includes(q)) &&
+      (c.nombre.toLowerCase().includes(q) || (c.direccion || '').toLowerCase().includes(q) || (c.nro_manager || '').toLowerCase().includes(q) || (c.cuit || '').toLowerCase().includes(q)) &&
       (f === '' ? true : f === 'con' ? !!c.direccion : !c.direccion)
     ))
   }
