@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="es">
-<head><link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<head>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>P&B Logística</title>
@@ -8,9 +9,74 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
   <link rel="stylesheet" href="/src/styles/main.css">
+  <style>
+    #splash {
+      position: fixed;
+      inset: 0;
+      background: #000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      transition: opacity 0.4s ease;
+    }
+    #splash.fade-out { opacity: 0; pointer-events: none; }
+    .splash-logo {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+    .splash-main {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 52px;
+      font-weight: 600;
+      color: #fff;
+      letter-spacing: -1px;
+      line-height: 1;
+    }
+    .splash-main span { color: #555; }
+    .splash-sub {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 11px;
+      font-weight: 400;
+      color: #333;
+      letter-spacing: 6px;
+      text-transform: uppercase;
+    }
+    .splash-dot {
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: #333;
+      margin-top: 24px;
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.2; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.4); }
+    }
+  </style>
 </head>
 <body>
+  <div id="splash">
+    <div class="splash-logo">
+      <div class="splash-main">P<span>&</span>B</div>
+      <div class="splash-sub">Logística</div>
+    </div>
+    <div class="splash-dot"></div>
+  </div>
   <div id="app"></div>
   <script type="module" src="/src/main.js"></script>
+  <script>
+    window.hideSplash = function() {
+      const splash = document.getElementById('splash')
+      if (splash) {
+        splash.classList.add('fade-out')
+        setTimeout(() => splash.remove(), 400)
+      }
+    }
+  </script>
 </body>
 </html>

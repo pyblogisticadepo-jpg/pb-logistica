@@ -169,6 +169,7 @@ function showApp() {
   rd.className = 'role-tag ' + (ROLES_CLASS[currentUser.rol] || 'role-directivo')
   buildNav()
   showPage('resumen')
+  if (window.hideSplash) window.hideSplash()
 }
 
 function buildNav() {
@@ -227,7 +228,11 @@ async function init() {
     if (profile && profile.activo) {
       currentUser = profile
       showApp()
+    } else {
+      if (window.hideSplash) window.hideSplash()
     }
+  } else {
+    if (window.hideSplash) window.hideSplash()
   }
 }
 
