@@ -402,6 +402,45 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
   }
 
   if (['operario','logistica'].includes(currentUser.rol)) {
+    // Iniciar GPS via Service Worker para background tracking
+    const startGPS = async () => {
+      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+        const { supabaseUrl, supabaseKey } = await import('../lib/supabase.js').then(m => ({
+          supabaseUrl: m.supabase.supabaseUrl,
+          supabaseKey: m.supabase.supabaseKey
+        })).catch(() => ({ supabaseUrl: null, supabaseKey: null }))
+        navigator.serviceWorker.controller.postMessage({
+          type: 'START_GPS',
+          data: {
+            supabaseUrl: 'https://edkwmethipkowetivbbu.supabase.co',
+            supabaseKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVka3dtZXRoaXBrb3dldGl2YmJ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDcxNDA0MTMsImV4cCI6MjA2MjcxNjQxM30.oVLBlEjPQDMGoJkBuq6VCB6sMvHzEk1j3C2LJ_9b9I8',
+            operario: currentUser.nombre
+          }
+        })
+      } else {
+        // Fallback: GPS directo si SW no está listo
+        async function updateGPS() {
+          if (!navigator.geolocation) return
+          navigator.geolocation.getCurrentPosition(async pos => {
+            await supabase.from('gps_positions').upsert({
+              operario: currentUser.nombre,
+              lat: pos.coords.latitude,
+              lng: pos.coords.longitude,
+              updated_at: new Date().toISOString()
+            }, { onConflict: 'operario' })
+          }, () => {})
+        }
+        updateGPS()
+        setInterval(updateGPS, 30000)
+      }
+    }
+    // Esperar a que el SW esté listo
+    if (navigator.serviceWorker.controller) {
+      startGPS()
+    } else {
+      navigator.serviceWorker.ready.then(startGPS)
+    }
+  }
     async function updateGPS() {
       if (!navigator.geolocation) return
       navigator.geolocation.getCurrentPosition(async pos => {
