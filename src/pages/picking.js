@@ -119,6 +119,7 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
         <div class="modal-body" id="pk-detalle-body"></div>
         <div class="modal-footer">
           <button class="btn-cancel" id="cancel-pk-detalle">Cerrar</button>
+          <button class="btn-confirm" style="background:#1a3a1a;color:#52c452;display:none" id="btn-avanzar-paso"><i class="ti ti-arrow-right"></i> <span id="btn-avanzar-label">Completar armado</span></button>
           <button class="btn-confirm" style="background:#e05555;display:none" id="btn-cancelar-picking"><i class="ti ti-ban"></i> Cancelar pedido</button>
         </div>
       </div>
@@ -127,7 +128,7 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     <div class="modal-overlay" id="modal-confirmar-cancel">
       <div class="modal"><div class="modal-top-bar" style="background:#e05555"></div>
         <div class="modal-header">
-          <span class="modal-title">Cancelar pedido</span>
+          <span class="modal-title">¿Cancelar este pedido?</span>
           <button class="modal-close" id="close-confirmar-cancel"><i class="ti ti-x"></i></button>
         </div>
         <div class="modal-body">
@@ -152,7 +153,7 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
         </div>
         <div class="modal-footer">
           <button class="btn-cancel" id="cancel-confirmar-cancel">Volver</button>
-          <button class="btn-confirm" style="background:#e05555" id="save-cancel-picking"><i class="ti ti-ban"></i> Confirmar cancelación</button>
+          <button class="btn-confirm" style="background:#e05555" id="save-cancel-picking"><i class="ti ti-ban"></i> Sí, cancelar pedido</button>
         </div>
       </div>
     </div>`
@@ -192,7 +193,14 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     el.querySelector('#s3-warn').style.display = el.querySelector('#s3-doc').value === 'remito' ? 'block' : 'none'
   }
 
-  // Botón cancelar desde detalle
+  el.querySelector('#btn-avanzar-paso').onclick = () => {
+    const p = allPicking.find(x => x.id === editingId)
+    if (!p) return
+    mDetalle.classList.remove('open')
+    if (p.estado === 'preparacion') openStep2(p)
+    else if (p.estado === 'armado') openStep3(p)
+  }
+
   el.querySelector('#btn-cancelar-picking').onclick = () => {
     cancelingId = editingId
     el.querySelector('#cancel-motivo').value = ''
@@ -326,29 +334,25 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     const p = allPicking.find(x => x.id === id)
     if (!p) return
     editingId = id
-
-    if (p.estado === 'cancelado') {
-      mostrarDetallePicking(p, false)
-      return
-    }
-    if (p.estado === 'preparacion') { openStep2(p); return }
-    if (p.estado === 'armado') { openStep3(p); return }
-
-    // Para habilitado mostrar detalle con opción de cancelar
-    mostrarDetallePicking(p, true)
+    mostrarDetallePicking(p)
   }
 
-  async function mostrarDetallePicking(p, puedeCancel) {
-    // Verificar si ya fue entregado o retirado
+  async function mostrarDetallePicking(p) {
+    const cancelado = p.estado === 'cancelado'
+    const puedeCancel = !cancelado && !isObserver
+
     let yaFinalizado = false
-    if (puedeCancel) {
-      const { data: entregado } = await supabase.from('recorrido_pedidos').select('id').eq('estado', 'entregado').eq('codigo_interno', p.codigo_interno || '').maybeSingle()
-      const { data: retirado } = await supabase.from('retiras').select('id').eq('codigo_interno', p.codigo_interno || '').maybeSingle()
+    if (puedeCancel && p.codigo_interno) {
+      const [{ data: entregado }, { data: retirado }] = await Promise.all([
+        supabase.from('recorrido_pedidos').select('id').eq('estado', 'entregado').eq('codigo_interno', p.codigo_interno).maybeSingle(),
+        supabase.from('retiras').select('id').eq('codigo_interno', p.codigo_interno).maybeSingle()
+      ])
       if (entregado || retirado) yaFinalizado = true
     }
 
     el.querySelector('#pk-detalle-title').textContent = (p.codigo_interno || p.nota_pedido) + ' — ' + p.cliente_nombre
     const lpm = p.timer_secs > 0 ? (p.lineas / (p.timer_secs / 60)).toFixed(1) : '—'
+
     el.querySelector('#pk-detalle-body').innerHTML = `
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
         <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Código interno</div><div style="font-family:'DM Mono',monospace;color:#5aadee">${p.codigo_interno || '—'}</div></div>
@@ -370,8 +374,19 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
         Registrado: ${new Date(p.hora_registro).toLocaleString('es-AR')}
       </div>`
 
+    // Botón avanzar paso
+    const btnAvanzar = el.querySelector('#btn-avanzar-paso')
+    const btnAvanzarLabel = el.querySelector('#btn-avanzar-label')
+    if (!cancelado && !isObserver && (p.estado === 'preparacion' || p.estado === 'armado')) {
+      btnAvanzar.style.display = 'block'
+      btnAvanzarLabel.textContent = p.estado === 'preparacion' ? 'Completar armado' : 'Confirmar documentación'
+    } else {
+      btnAvanzar.style.display = 'none'
+    }
+
+    // Botón cancelar
     const btnCancel = el.querySelector('#btn-cancelar-picking')
-    if (puedeCancel && !yaFinalizado && !isObserver) {
+    if (puedeCancel && !yaFinalizado) {
       btnCancel.style.display = 'block'
     } else {
       btnCancel.style.display = 'none'
