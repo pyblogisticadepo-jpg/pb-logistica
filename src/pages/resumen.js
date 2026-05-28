@@ -52,7 +52,6 @@ export async function renderResumen(el, { supabase, currentUser }) {
       .select('*, clientes(transporte_tipo, transporte_id, transportes(nombre, retira_deposito))')
       .eq('estado', 'habilitado')
 
-    // Traer bultos de picking
     const { data: todosPicking } = await supabase
       .from('picking').select('codigo_interno, nota_pedido, bultos')
     const bultosMap = {}
@@ -60,20 +59,6 @@ export async function renderResumen(el, { supabase, currentUser }) {
       if (p.codigo_interno) bultosMap[p.codigo_interno] = p.bultos
       if (p.nota_pedido) bultosMap[p.nota_pedido] = bultosMap[p.nota_pedido] || p.bultos
     })
-
-    // Traer info de transportes para pedidos de recorrido
-    const { data: todosTransportes } = await supabase
-      .from('transportes').select('id, nombre, retira_deposito')
-    const transportesMap = {}
-    ;(todosTransportes || []).forEach(t => { transportesMap[t.id] = t })
-
-    // Traer clientes para pedidos de recorrido
-    const clienteIdsRecorrido = [...new Set((recorridos || []).flatMap(r => r.recorrido_pedidos.map(p => p.cliente_id)).filter(Boolean))]
-    let clientesRecMap = {}
-    if (clienteIdsRecorrido.length > 0) {
-      const { data: clRec } = await supabase.from('clientes').select('id, transporte_tipo, transporte_id').in('id', clienteIdsRecorrido)
-      ;(clRec || []).forEach(c => { clientesRecMap[c.id] = c })
-    }
 
     const { data: todosEntregados } = await supabase
       .from('recorrido_pedidos').select('nota_pedido, codigo_interno').eq('estado', 'entregado')
@@ -97,21 +82,17 @@ export async function renderResumen(el, { supabase, currentUser }) {
       ...(recorridos || []).flatMap(r => r.recorrido_pedidos.map(p => {
         const rechazado = p.estado === 'pendiente' && p.observaciones
         const bultos = bultosMap[p.codigo_interno] || bultosMap[p.nota_pedido] || null
-        // Buscar nombre del transporte para externos
-        const clienteRec = clientesRecMap[p.cliente_id]
-        let transporteLabel = null
-        if (p.tipo === 'externo' && clienteRec?.transporte_id) {
-          const transp = transportesMap[clienteRec.transporte_id]
-          if (transp) transporteLabel = transp.nombre
-        }
+        // Usar transporte_nombre guardado en recorrido_pedidos directamente
+        const transporteNombre = p.transporte_nombre || null
+        const tipoLabel = p.tipo === 'pyb' ? 'Entrega P&B' : (transporteNombre ? `Transp. ${transporteNombre}` : 'Transp. ext.')
         return {
           id: p.id,
           cliente: p.cliente_nombre,
           nota: p.nota_pedido,
           codigoInterno: p.codigo_interno,
           tipo: p.tipo === 'pyb' ? 'pyb' : 'externo',
-          tipoLabel: p.tipo === 'pyb' ? 'Entrega P&B' : (transporteLabel ? `Transp. ${transporteLabel}` : 'Transp. ext.'),
-          transporteNombre: transporteLabel,
+          tipoLabel,
+          transporteNombre,
           operario: r.operario,
           vehiculo: r.vehiculo,
           estado: p.estado === 'entregado' ? 'entregado' : rechazado ? 'rechazado' : 'reparto',
