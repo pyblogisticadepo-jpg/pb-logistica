@@ -52,7 +52,7 @@ export async function renderResumen(el, { supabase, currentUser }) {
       .select('*, clientes(transporte_tipo, transporte_id, transportes(nombre, retira_deposito))')
       .eq('estado', 'habilitado')
 
-    // Traer bultos de picking por codigo_interno
+    // Traer bultos de picking
     const { data: todosPicking } = await supabase
       .from('picking').select('codigo_interno, nota_pedido, bultos')
     const bultosMap = {}
@@ -60,6 +60,20 @@ export async function renderResumen(el, { supabase, currentUser }) {
       if (p.codigo_interno) bultosMap[p.codigo_interno] = p.bultos
       if (p.nota_pedido) bultosMap[p.nota_pedido] = bultosMap[p.nota_pedido] || p.bultos
     })
+
+    // Traer info de transportes para pedidos de recorrido
+    const { data: todosTransportes } = await supabase
+      .from('transportes').select('id, nombre, retira_deposito')
+    const transportesMap = {}
+    ;(todosTransportes || []).forEach(t => { transportesMap[t.id] = t })
+
+    // Traer clientes para pedidos de recorrido
+    const clienteIdsRecorrido = [...new Set((recorridos || []).flatMap(r => r.recorrido_pedidos.map(p => p.cliente_id)).filter(Boolean))]
+    let clientesRecMap = {}
+    if (clienteIdsRecorrido.length > 0) {
+      const { data: clRec } = await supabase.from('clientes').select('id, transporte_tipo, transporte_id').in('id', clienteIdsRecorrido)
+      ;(clRec || []).forEach(c => { clientesRecMap[c.id] = c })
+    }
 
     const { data: todosEntregados } = await supabase
       .from('recorrido_pedidos').select('nota_pedido, codigo_interno').eq('estado', 'entregado')
@@ -83,13 +97,21 @@ export async function renderResumen(el, { supabase, currentUser }) {
       ...(recorridos || []).flatMap(r => r.recorrido_pedidos.map(p => {
         const rechazado = p.estado === 'pendiente' && p.observaciones
         const bultos = bultosMap[p.codigo_interno] || bultosMap[p.nota_pedido] || null
+        // Buscar nombre del transporte para externos
+        const clienteRec = clientesRecMap[p.cliente_id]
+        let transporteLabel = null
+        if (p.tipo === 'externo' && clienteRec?.transporte_id) {
+          const transp = transportesMap[clienteRec.transporte_id]
+          if (transp) transporteLabel = transp.nombre
+        }
         return {
           id: p.id,
           cliente: p.cliente_nombre,
           nota: p.nota_pedido,
           codigoInterno: p.codigo_interno,
           tipo: p.tipo === 'pyb' ? 'pyb' : 'externo',
-          tipoLabel: p.tipo === 'pyb' ? 'Entrega P&B' : 'Transp. ext.',
+          tipoLabel: p.tipo === 'pyb' ? 'Entrega P&B' : (transporteLabel ? `Transp. ${transporteLabel}` : 'Transp. ext.'),
+          transporteNombre: transporteLabel,
           operario: r.operario,
           vehiculo: r.vehiculo,
           estado: p.estado === 'entregado' ? 'entregado' : rechazado ? 'rechazado' : 'reparto',
@@ -123,9 +145,10 @@ export async function renderResumen(el, { supabase, currentUser }) {
       ...habilitadosPendientes.map(p => {
         const tipo = p.clientes?.transporte_tipo
         const esRetira = tipo === 'retira' || (tipo === 'externo' && p.clientes?.transportes?.retira_deposito)
+        const transporteNombrePend = p.clientes?.transportes?.nombre
         const tipoLabel = esRetira
-          ? (tipo === 'retira' ? 'Retira cliente' : `Retira ${p.clientes?.transportes?.nombre || 'transporte'}`)
-          : (tipo === 'pyb' ? 'Entrega P&B' : 'Transp. ext.')
+          ? (tipo === 'retira' ? 'Retira cliente' : `Retira ${transporteNombrePend || 'transporte'}`)
+          : (tipo === 'pyb' ? 'Entrega P&B' : (transporteNombrePend ? `Transp. ${transporteNombrePend}` : 'Transp. ext.'))
         return {
           id: p.id,
           cliente: p.cliente_nombre,
@@ -133,6 +156,7 @@ export async function renderResumen(el, { supabase, currentUser }) {
           codigoInterno: p.codigo_interno,
           tipo: esRetira ? 'retira' : tipo || 'pyb',
           tipoLabel,
+          transporteNombre: transporteNombrePend || null,
           operario: '—',
           estado: 'pendiente',
           horaEntrega: null,
@@ -165,18 +189,18 @@ export async function renderResumen(el, { supabase, currentUser }) {
             <td>
               ${p.tipo === 'pyb' ? '<span class="badge badge-pyb">Entrega P&B</span>' :
                 p.tipo === 'retira' ? `<span class="badge badge-retira">${p.tipoLabel}</span>` :
-                '<span class="badge badge-externo">Transp. ext.</span>'}
+                `<span class="badge badge-externo">${p.tipoLabel}</span>`}
             </td>
-            <td style="font-family:'DM Mono',monospace;color:${p.bultos ? '#d4a830' : '#2a2a2a'};font-size:12px">${p.bultos || '—'}</td>
-            <td style="color:#555">${p.operario}</td>
+            <td style="font-family:'DM Mono',monospace;color:${p.bultos ? '#d4a830' : '#444'};font-size:12px">${p.bultos || '—'}</td>
+            <td style="color:#888">${p.operario}</td>
             <td>
               ${p.estado === 'entregado' ? '<span class="badge badge-entregado">Entregado</span>' :
                 p.estado === 'reparto' ? '<span class="badge badge-reparto">En reparto</span>' :
                 p.estado === 'rechazado' ? '<span class="badge" style="background:#2a0a0a;color:#e05555">Rechazado</span>' :
                 '<span class="badge badge-pendiente">Pendiente</span>'}
             </td>
-            <td style="font-family:'DM Mono',monospace;color:${p.horaEntrega ? '#52c452' : '#2a2a2a'}">${p.horaEntrega || '—'}</td>
-            <td style="font-family:'DM Mono',monospace;font-size:11px;color:#555">${p.recorrido}</td>
+            <td style="font-family:'DM Mono',monospace;color:${p.horaEntrega ? '#52c452' : '#444'}">${p.horaEntrega || '—'}</td>
+            <td style="font-family:'DM Mono',monospace;font-size:11px;color:#666">${p.recorrido}</td>
             <td><button class="btn-sm primary" data-detalle='${JSON.stringify(p).replace(/'/g, "&#39;")}' ><i class="ti ti-eye"></i></button></td>
           </tr>`).join('')}
         </tbody>
@@ -205,39 +229,41 @@ export async function renderResumen(el, { supabase, currentUser }) {
     if (p._tipo === 'recorrido') {
       html = `
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
-          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Recorrido</div><div style="font-family:'DM Mono',monospace;color:#5aadee">${p.recorrido}</div></div>
-          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Estado</div><div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Recorrido</div><div style="font-family:'DM Mono',monospace;color:#5aadee">${p.recorrido}</div></div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Estado</div><div>
             ${p.estado === 'entregado' ? '<span class="badge badge-entregado">Entregado</span>' :
               p.estado === 'rechazado' ? '<span class="badge" style="background:#2a0a0a;color:#e05555">Rechazado</span>' :
               '<span class="badge badge-reparto">En reparto</span>'}
           </div></div>
-          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Operario</div><div style="color:#ccc">${p.operario}</div></div>
-          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Vehículo</div><div style="color:#ccc">${p.vehiculo || '—'}</div></div>
-          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Hora salida</div><div style="font-family:'DM Mono',monospace;color:#888">${p.horaSalida || '—'}</div></div>
-          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Hora entrega</div><div style="font-family:'DM Mono',monospace;color:${p.horaEntrega ? '#52c452' : '#2a2a2a'}">${p.horaEntrega || '—'}</div></div>
-          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Km salida</div><div style="font-family:'DM Mono',monospace;color:#888">${p.kmSalida || '—'}</div></div>
-          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Km regreso</div><div style="font-family:'DM Mono',monospace;color:#888">${p.kmRegreso || '—'}</div></div>
-          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Bultos</div><div style="font-family:'DM Mono',monospace;color:#d4a830;font-size:18px">${p.bultos || '—'}</div></div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Operario</div><div style="color:#ccc">${p.operario}</div></div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Vehículo</div><div style="color:#ccc">${p.vehiculo || '—'}</div></div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Hora salida</div><div style="font-family:'DM Mono',monospace;color:#aaa">${p.horaSalida || '—'}</div></div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Hora entrega</div><div style="font-family:'DM Mono',monospace;color:${p.horaEntrega ? '#52c452' : '#444'}">${p.horaEntrega || '—'}</div></div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Km salida</div><div style="font-family:'DM Mono',monospace;color:#aaa">${p.kmSalida || '—'}</div></div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Km regreso</div><div style="font-family:'DM Mono',monospace;color:#aaa">${p.kmRegreso || '—'}</div></div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Bultos</div><div style="font-family:'DM Mono',monospace;color:#d4a830;font-size:18px">${p.bultos || '—'}</div></div>
+          ${p.transporteNombre ? `<div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Transporte</div><div style="color:#a78bfa">${p.transporteNombre}</div></div>` : ''}
         </div>
-        ${p.direccion ? `<div style="background:#111;border:1px solid #1e1e1e;padding:10px 14px;border-radius:2px;font-size:12px;color:#555;margin-bottom:12px"><i class="ti ti-map-pin" style="font-size:11px"></i> ${p.direccion}</div>` : ''}
+        ${p.direccion ? `<div style="background:#111;border:1px solid #1e1e1e;padding:10px 14px;border-radius:2px;font-size:12px;color:#666;margin-bottom:12px"><i class="ti ti-map-pin" style="font-size:11px"></i> ${p.direccion}</div>` : ''}
         ${p.observaciones ? `<div style="background:#1f0d0d;border:1px solid #3a1a1a;padding:10px 14px;border-radius:2px;font-size:12px;color:#e05555;margin-bottom:12px"><i class="ti ti-alert-circle" style="font-size:11px"></i> ${p.observaciones}</div>` : ''}`
     } else if (p._tipo === 'retira') {
       html = `
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
-          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Tipo</div><div><span class="badge badge-retira">${p.tipoLabel}</span></div></div>
-          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Estado</div><div><span class="badge badge-entregado">Retirado</span></div></div>
-          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Hora retiro</div><div style="font-family:'DM Mono',monospace;color:${p.horaEntrega ? '#52c452' : '#2a2a2a'}">${p.horaEntrega || '—'}</div></div>
-          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Bultos</div><div style="font-family:'DM Mono',monospace;color:#d4a830;font-size:18px">${p.bultos || '—'}</div></div>
-          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Documentación</div><div style="color:#888">${p.documentacion === 'fac_remito' ? 'Fac. y Remito' : p.documentacion === 'fac_etiqueta' ? 'Fac. y Etiqueta' : p.documentacion || '—'}</div></div>
-          ${p.transporteRetira ? `<div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Transporte</div><div style="color:#d4a830">${p.transporteRetira}</div></div>` : ''}
+          <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Tipo</div><div><span class="badge badge-retira">${p.tipoLabel}</span></div></div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Estado</div><div><span class="badge badge-entregado">Retirado</span></div></div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Hora retiro</div><div style="font-family:'DM Mono',monospace;color:${p.horaEntrega ? '#52c452' : '#444'}">${p.horaEntrega || '—'}</div></div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Bultos</div><div style="font-family:'DM Mono',monospace;color:#d4a830;font-size:18px">${p.bultos || '—'}</div></div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Documentación</div><div style="color:#aaa">${p.documentacion === 'fac_remito' ? 'Fac. y Remito' : p.documentacion === 'fac_etiqueta' ? 'Fac. y Etiqueta' : p.documentacion || '—'}</div></div>
+          ${p.transporteRetira ? `<div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Transporte</div><div style="color:#d4a830">${p.transporteRetira}</div></div>` : ''}
         </div>`
     } else {
       html = `
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
-          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Tipo</div><div><span class="badge ${p.tipo === 'retira' ? 'badge-retira' : 'badge-pyb'}">${p.tipoLabel}</span></div></div>
-          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Estado</div><div><span class="badge badge-pendiente">Pendiente</span></div></div>
-          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Documentación</div><div style="color:#888">${p.documentacion === 'fac_remito' ? 'Fac. y Remito' : p.documentacion === 'fac_etiqueta' ? 'Fac. y Etiqueta' : p.documentacion || '—'}</div></div>
-          <div><div style="font-size:9px;letter-spacing:2px;color:#333;text-transform:uppercase;margin-bottom:4px">Bultos</div><div style="font-family:'DM Mono',monospace;color:#d4a830;font-size:18px">${p.bultos || '—'}</div></div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Tipo</div><div><span class="badge ${p.tipo === 'retira' ? 'badge-retira' : p.tipo === 'pyb' ? 'badge-pyb' : 'badge-externo'}">${p.tipoLabel}</span></div></div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Estado</div><div><span class="badge badge-pendiente">Pendiente</span></div></div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Documentación</div><div style="color:#aaa">${p.documentacion === 'fac_remito' ? 'Fac. y Remito' : p.documentacion === 'fac_etiqueta' ? 'Fac. y Etiqueta' : p.documentacion || '—'}</div></div>
+          <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Bultos</div><div style="font-family:'DM Mono',monospace;color:#d4a830;font-size:18px">${p.bultos || '—'}</div></div>
+          ${p.transporteNombre ? `<div style="grid-column:span 2"><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Transporte</div><div style="color:#a78bfa">${p.transporteNombre}</div></div>` : ''}
         </div>`
     }
 
