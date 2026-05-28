@@ -155,9 +155,9 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     const { error } = await supabase.from('recorridos').update({ estado: 'completado', km_regreso: km }).eq('id', activeRecorridoId)
     if (error) { alert('Error: ' + error.message); return }
     if (!esPersonal && r.vehiculo) await supabase.from('vehiculos').update({ en_uso: false, km_actual: km }).eq('nombre', r.vehiculo)
+    // Liberar pedidos rechazados
     const rechazados = r.recorrido_pedidos.filter(p => p.estado === 'pendiente' && p.observaciones)
     for (const p of rechazados) {
-      // Usar codigo_interno si existe, sino nota_pedido
       if (p.codigo_interno) {
         await supabase.from('picking').update({ estado: 'habilitado' }).eq('codigo_interno', p.codigo_interno)
       } else {
@@ -238,7 +238,6 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       const fecha = new Date().toISOString().split('T')[0]
       const { data: pk } = await supabase.from('picking').select('nota_pedido, cliente_nombre, documentacion, cliente_id, codigo_interno').eq('id', pickingId).single()
       if (!pk) return
-      // Verificar doble retiro usando codigo_interno si existe
       let yaRetirado = null
       if (pk.codigo_interno) {
         const { data } = await supabase.from('retiras').select('id').eq('codigo_interno', pk.codigo_interno).maybeSingle()
@@ -272,8 +271,36 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     }
   })
 
+  async function limpiarRechazadosHuerfanos() {
+    // Buscar recorridos completados con pedidos rechazados que no se liberaron
+    const { data: recCompletados } = await supabase
+      .from('recorridos').select('id').eq('estado', 'completado')
+    if (!recCompletados || recCompletados.length === 0) return
+    const idsCompletados = recCompletados.map(r => r.id)
+
+    const { data: rechazadosHuerfanos } = await supabase
+      .from('recorrido_pedidos')
+      .select('id, nota_pedido, codigo_interno')
+      .eq('estado', 'pendiente')
+      .not('observaciones', 'is', null)
+      .in('recorrido_id', idsCompletados)
+
+    if (!rechazadosHuerfanos || rechazadosHuerfanos.length === 0) return
+
+    for (const p of rechazadosHuerfanos) {
+      if (p.codigo_interno) {
+        await supabase.from('picking').update({ estado: 'habilitado' }).eq('codigo_interno', p.codigo_interno)
+      } else {
+        await supabase.from('picking').update({ estado: 'habilitado' }).eq('nota_pedido', p.nota_pedido)
+      }
+    }
+  }
+
   async function load() {
     const today = new Date().toISOString().split('T')[0]
+
+    // Limpiar automáticamente pedidos rechazados en recorridos completados
+    await limpiarRechazadosHuerfanos()
 
     let query = supabase.from('recorridos').select(`*, recorrido_pedidos(*)`).eq('fecha', today).order('created_at', { ascending: false })
     if (currentUser.rol === 'operario') query = query.eq('operario', currentUser.nombre)
@@ -299,7 +326,6 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     const transportesRetiraMap = {}
     ;(transportesRetira || []).forEach(t => { transportesRetiraMap[t.id] = t.nombre })
 
-    // Usar codigo_interno para identificar entregados
     const { data: todosEntregados } = await supabase
       .from('recorrido_pedidos').select('nota_pedido, codigo_interno').eq('estado', 'entregado')
     const codigosYaEntregados = new Set((todosEntregados || []).map(p => p.codigo_interno).filter(Boolean))
@@ -320,11 +346,8 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     const entregasPendientes = []
 
     ;(allPicking || []).forEach(p => {
-      // Verificar si ya fue entregado
       if (p.codigo_interno ? codigosYaEntregados.has(p.codigo_interno) : notasYaEntregadas.has(p.nota_pedido)) return
-      // Verificar si está en recorrido activo
       if (p.codigo_interno ? codigosEnRecorridoActivo.has(p.codigo_interno) : notasEnRecorridoActivo.includes(p.nota_pedido)) return
-      // Verificar si ya fue retirado
       if (p.codigo_interno ? codigosYaRetirados.has(p.codigo_interno) : notasYaRetiradas.has(p.nota_pedido)) return
 
       const cliente = clientesMap[p.cliente_id]
@@ -355,12 +378,12 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
         <div style="background:#111;border:1px solid ${p._border};padding:14px 16px;margin-bottom:8px;border-radius:2px;display:flex;align-items:center;gap:12px;">
           <div style="flex:1">
             <div style="font-size:13px;color:#ccc;font-weight:500">${p.cliente_nombre} <span style="font-size:10px;color:${p._color};margin-left:6px">${p._label}</span></div>
-            <div style="font-size:11px;color:#444;margin-top:2px">
+            <div style="font-size:11px;color:#555;margin-top:2px">
               ${p.codigo_interno ? `<span style="font-family:'DM Mono',monospace;color:#5aadee">${p.codigo_interno}</span> · ` : ''}
               ${p.nota_pedido} · Doc: ${p.documentacion === 'fac_remito' ? 'Fac. y Remito' : p.documentacion === 'fac_etiqueta' ? 'Fac. y Etiqueta' : p.documentacion || '—'}
             </div>
           </div>
-          <span style="font-size:10px;color:#444;letter-spacing:1px">Sin recorrido</span>
+          <span style="font-size:10px;color:#555;letter-spacing:1px">Sin recorrido</span>
         </div>`).join('')
     }
 
@@ -370,7 +393,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
         <div style="background:#111;border:1px solid ${p._border};padding:14px 16px;margin-bottom:8px;border-radius:2px;display:flex;align-items:center;gap:12px;">
           <div style="flex:1">
             <div style="font-size:13px;color:#ccc;font-weight:500">${p.cliente_nombre} <span style="font-size:10px;color:${p._color};margin-left:6px">${p._label}</span></div>
-            <div style="font-size:11px;color:#444;margin-top:2px">
+            <div style="font-size:11px;color:#555;margin-top:2px">
               ${p.codigo_interno ? `<span style="font-family:'DM Mono',monospace;color:#5aadee">${p.codigo_interno}</span> · ` : ''}
               ${p.nota_pedido} · Doc: ${p.documentacion === 'fac_remito' ? 'Fac. y Remito' : p.documentacion === 'fac_etiqueta' ? 'Fac. y Etiqueta' : p.documentacion || '—'}
             </div>
@@ -404,22 +427,22 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
           <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px">
             <div>
               <div style="font-family:'DM Mono',monospace;font-size:14px;font-weight:600;color:#fff;margin-bottom:4px">${r.codigo}</div>
-              <div style="font-size:12px;color:#444">${estBadge} · Operario: <strong style="color:#666">${r.operario}</strong> · ${ent}/${tot} entregas${rechazados > 0 ? ` · <span style="color:#e05555">${rechazados} rechazado${rechazados > 1 ? 's' : ''}</span>` : ''}${r.vehiculo ? ' · ' + r.vehiculo : ''}</div>
-              <div style="font-size:11px;color:#333;margin-top:3px">Km salida: <span style="font-family:'DM Mono',monospace">${r.km_salida || '—'}</span> · Km regreso: <span style="font-family:'DM Mono',monospace">${r.km_regreso || '—'}</span>${r.km_salida && r.km_regreso ? ' · <span style="color:#52c452;font-family:\'DM Mono\',monospace">' + (r.km_regreso - r.km_salida) + ' km</span>' : ''}${r.hora_salida ? ' · Salida: ' + r.hora_salida : ''}</div>
+              <div style="font-size:12px;color:#555">${estBadge} · Operario: <strong style="color:#888">${r.operario}</strong> · ${ent}/${tot} entregas${rechazados > 0 ? ` · <span style="color:#e05555">${rechazados} rechazado${rechazados > 1 ? 's' : ''}</span>` : ''}${r.vehiculo ? ' · ' + r.vehiculo : ''}</div>
+              <div style="font-size:11px;color:#444;margin-top:3px">Km salida: <span style="font-family:'DM Mono',monospace">${r.km_salida || '—'}</span> · Km regreso: <span style="font-family:'DM Mono',monospace">${r.km_regreso || '—'}</span>${r.km_salida && r.km_regreso ? ' · <span style="color:#52c452;font-family:\'DM Mono\',monospace">' + (r.km_regreso - r.km_salida) + ' km</span>' : ''}${r.hora_salida ? ' · Salida: ' + r.hora_salida : ''}</div>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               ${!isObserver && r.estado === 'pendiente' ? `<button class="btn-sm orange" data-salida="${r.id}"><i class="ti ti-truck-delivery"></i> Confirmar salida</button>` : ''}
               ${!isObserver && listoParaRegresar ? `<button class="btn-sm green" data-regreso="${r.id}"><i class="ti ti-home"></i> Confirmar regreso</button>` : ''}
             </div>
           </div>
-          ${tot === 0 ? '<div style="color:#2a2a2a;font-size:12px;padding:8px 0">Sin pedidos en este recorrido</div>' :
+          ${tot === 0 ? '<div style="color:#444;font-size:12px;padding:8px 0">Sin pedidos en este recorrido</div>' :
           r.recorrido_pedidos.map(p => `
             <div class="pedido-card ${p.estado === 'entregado' ? 'entregado' : p.observaciones ? 'rechazado' : ''}">
               <div class="pedido-card-header">
                 <div class="pedido-orden ${p.tipo || 'pyb'}">${p.orden}</div>
                 <div style="flex:1">
                   <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:2px">${p.cliente_nombre}</div>
-                  <div style="font-size:11px;color:#444">
+                  <div style="font-size:11px;color:#555">
                     ${p.codigo_interno ? `<span style="font-family:'DM Mono',monospace;color:#5aadee;font-size:10px">${p.codigo_interno}</span> · ` : ''}
                     <i class="ti ti-map-pin" style="font-size:10px"></i> ${p.direccion || '—'} · ${p.nota_pedido}${p.tipo === 'externo' ? ' · ' + (p.transporte_nombre || '') : ''}
                   </div>
