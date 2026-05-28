@@ -1,5 +1,7 @@
 const ORS_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjIwOTM5ZWM0NzVhYzRmZjA5ZjQ1NWVlODk3OWIyMTk0IiwiaCI6Im11cm11cjY0In0='
 const DEPOSITO = { lat: -31.4493549, lng: -64.1171403, nombre: 'Depósito P&B' }
+const SUPABASE_URL = 'https://edkwmethipkowetivbbu.supabase.co'
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVka3dtZXRoaXBrb3dldGl2YmJ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDcxNDA0MTMsImV4cCI6MjA2MjcxNjQxM30.oVLBlEjPQDMGoJkBuq6VCB6sMvHzEk1j3C2LJ_9b9I8'
 
 async function geocodeAddress(address) {
   try {
@@ -146,22 +148,22 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
       return `<div class="recorrido-card">
         <div class="recorrido-card-header" data-toggle="${r.id}">
           <div>
-            <div style="font-family:'DM Mono',monospace;font-size:12px;color:#444;margin-bottom:3px">${r.codigo}</div>
+            <div style="font-family:'DM Mono',monospace;font-size:12px;color:#555;margin-bottom:3px">${r.codigo}</div>
             <div style="font-size:13px;color:#ccc">Operario: <strong>${r.operario}</strong> · ${r.recorrido_pedidos.length} paradas · ${ent} entregadas · ${estBadge}${r.vehiculo ? ' · ' + r.vehiculo : ''}</div>
           </div>
           <div style="display:flex;align-items:center;gap:8px">
             ${mapsUrl ? `<a href="${mapsUrl}" target="_blank" onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:4px;padding:6px 10px;background:#0d1f0d;border:1px solid #1a3a1a;border-radius:2px;color:#52c452;font-size:11px;text-decoration:none;white-space:nowrap"><i class="ti ti-map-2"></i> Maps</a>` : ''}
-            <i class="ti ti-chevron-down" style="color:#333;font-size:16px"></i>
+            <i class="ti ti-chevron-down" style="color:#444;font-size:16px"></i>
           </div>
         </div>
         <div class="recorrido-card-body" id="rbody-${r.id}">
-          ${r.recorrido_pedidos.length === 0 ? '<div style="color:#2a2a2a;font-size:12px;padding:8px">Sin paradas</div>' :
+          ${r.recorrido_pedidos.length === 0 ? '<div style="color:#444;font-size:12px;padding:8px">Sin paradas</div>' :
           r.recorrido_pedidos.map(p => `
             <div class="recorrido-stop">
               <div class="stop-num ${p.tipo}">${p.orden}</div>
               <div style="flex:1">
                 <div style="font-size:13px;color:#ccc;font-weight:500">${p.cliente_nombre}</div>
-                <div style="font-size:11px;color:#333;margin-top:2px">
+                <div style="font-size:11px;color:#555;margin-top:2px">
                   ${p.codigo_interno ? `<span style="font-family:'DM Mono',monospace;color:#5aadee;font-size:10px">${p.codigo_interno}</span> · ` : ''}
                   <i class="ti ti-map-pin" style="font-size:10px"></i> ${p.direccion || '—'}${p.tipo === 'externo' ? ' · ' + (p.transporte_nombre || '') : ''}
                 </div>
@@ -208,7 +210,7 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
     mapMarkers.forEach(m => mapInstance.removeLayer(m))
     mapMarkers = []
     if (activos.length === 0) {
-      legend.innerHTML = '<div style="font-size:12px;color:#2a2a2a;text-align:center;padding:12px">No hay vehículos en ruta ahora</div>'
+      legend.innerHTML = '<div style="font-size:12px;color:#444;text-align:center;padding:12px">No hay vehículos en ruta ahora</div>'
       return
     }
     const { data: posiciones } = await supabase.from('gps_positions').select('*').in('operario', activos.map(r => r.operario))
@@ -230,11 +232,11 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
         mapMarkers.push(marker)
       }
       legend.innerHTML += `
-        <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#111;border:1px solid #1e1e1e;border-radius:2px;">
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#141414;border:1px solid #222;border-radius:2px;">
           <div style="width:12px;height:12px;border-radius:50%;background:${color};flex-shrink:0;${pos ? 'box-shadow:0 0 6px ' + color + '88' : 'opacity:.4'}"></div>
           <div style="flex:1">
             <div style="font-size:13px;color:#ccc;font-weight:500">${r.operario} · ${r.vehiculo || '—'}</div>
-            <div style="font-size:11px;color:#444;margin-top:2px">${r.codigo}${lastUpdate ? ' · GPS: ' + lastUpdate : ' · <span style="color:#555">Sin señal GPS</span>'}</div>
+            <div style="font-size:11px;color:#666;margin-top:2px">${r.codigo}${lastUpdate ? ' · GPS: ' + lastUpdate : ' · <span style="color:#555">Sin señal GPS</span>'}</div>
           </div>
         </div>`
     })
@@ -250,21 +252,19 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
       optimizarBtn.disabled = false
       optimizarBtn.dataset.step = ''
 
-      // Usar codigo_interno como identificador único
       const { data: enRuta } = await supabase.from('recorrido_pedidos').select('codigo_interno, nota_pedido')
       const codigosEnRuta = new Set((enRuta || []).map(p => p.codigo_interno).filter(Boolean))
       const notasEnRuta = new Set((enRuta || []).map(p => p.nota_pedido).filter(Boolean))
 
       const { data: pk } = await supabase.from('picking').select('id, nota_pedido, cliente_nombre, cliente_id, codigo_interno').eq('estado', 'habilitado')
-      
-      // Filtrar por codigo_interno si existe, sino por nota_pedido
+
       const disponiblesPk = (pk || []).filter(p => {
         if (p.codigo_interno) return !codigosEnRuta.has(p.codigo_interno)
         return !notasEnRuta.has(p.nota_pedido)
       })
 
       if (disponiblesPk.length === 0) {
-        el.querySelector('#pedidos-disponibles').innerHTML = '<div style="color:#2a2a2a;font-size:12px;padding:10px">Sin pedidos habilitados disponibles</div>'
+        el.querySelector('#pedidos-disponibles').innerHTML = '<div style="color:#444;font-size:12px;padding:10px">Sin pedidos habilitados disponibles</div>'
       } else {
         const clienteIds = [...new Set(disponiblesPk.map(p => p.cliente_id).filter(Boolean))]
         let clientesMap = {}
@@ -294,7 +294,7 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
             <input type="checkbox" style="accent-color:#5aadee" ${tieneDir ? '' : 'disabled'}>
             <div>
               <div style="font-size:13px;color:#ccc;font-weight:500">${label} — ${p.cliente_nombre}</div>
-              <div style="font-size:11px;color:#444;margin-top:2px">${tipoLabel} · ${direccion || '<span style="color:#e05555">Sin dirección</span>'}</div>
+              <div style="font-size:11px;color:#666;margin-top:2px">${tipoLabel} · ${direccion || '<span style="color:#e05555">Sin dirección</span>'}</div>
             </div>
           </div>`
         }).join('')
@@ -385,14 +385,14 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
 
       el.querySelector('#ruta-preview').style.display = 'block'
       el.querySelector('#ruta-steps').innerHTML = `
-        <div style="padding:8px 12px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:2px;margin-bottom:4px;font-size:12px;color:#333">🏭 Depósito P&B — Punto de partida</div>
+        <div style="padding:8px 12px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:2px;margin-bottom:4px;font-size:12px;color:#444">🏭 Depósito P&B — Punto de partida</div>
         ${pedidosOrdenados.map((p, i) => `
           <div style="padding:8px 12px;background:#0d1f2d;border:1px solid #1a3a52;border-radius:2px;margin-bottom:4px;display:flex;align-items:center;gap:10px;">
             <div style="width:20px;height:20px;border-radius:50%;background:#0d1f2d;border:1px solid #5aadee;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#5aadee;flex-shrink:0">${i+1}</div>
             <div>
               ${p.codigo ? `<div style="font-size:10px;font-family:'DM Mono',monospace;color:#5aadee;margin-bottom:2px">${p.codigo}</div>` : ''}
               <div style="font-size:12px;color:#ccc">${p.cliente}</div>
-              <div style="font-size:11px;color:#444">${p.dir}</div>
+              <div style="font-size:11px;color:#666">${p.dir}</div>
             </div>
           </div>`).join('')}`
       btn.innerHTML = '<i class="ti ti-check"></i> Confirmar recorrido'
@@ -402,25 +402,19 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
   }
 
   if (['operario','logistica'].includes(currentUser.rol)) {
-    // Iniciar GPS via Service Worker para background tracking
     const startGPS = async () => {
       if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-        const { supabaseUrl, supabaseKey } = await import('../lib/supabase.js').then(m => ({
-          supabaseUrl: m.supabase.supabaseUrl,
-          supabaseKey: m.supabase.supabaseKey
-        })).catch(() => ({ supabaseUrl: null, supabaseKey: null }))
         navigator.serviceWorker.controller.postMessage({
           type: 'START_GPS',
           data: {
-            supabaseUrl: 'https://edkwmethipkowetivbbu.supabase.co',
-            supabaseKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVka3dtZXRoaXBrb3dldGl2YmJ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDcxNDA0MTMsImV4cCI6MjA2MjcxNjQxM30.oVLBlEjPQDMGoJkBuq6VCB6sMvHzEk1j3C2LJ_9b9I8',
+            supabaseUrl: SUPABASE_URL,
+            supabaseKey: SUPABASE_KEY,
             operario: currentUser.nombre
           }
         })
       } else {
-        // Fallback: GPS directo si SW no está listo
-        async function updateGPS() {
-          if (!navigator.geolocation) return
+        if (!navigator.geolocation) return
+        const updateGPS = async () => {
           navigator.geolocation.getCurrentPosition(async pos => {
             await supabase.from('gps_positions').upsert({
               operario: currentUser.nombre,
@@ -434,26 +428,11 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
         setInterval(updateGPS, 30000)
       }
     }
-    // Esperar a que el SW esté listo
     if (navigator.serviceWorker.controller) {
       startGPS()
     } else {
       navigator.serviceWorker.ready.then(startGPS)
     }
-  }
-    async function updateGPS() {
-      if (!navigator.geolocation) return
-      navigator.geolocation.getCurrentPosition(async pos => {
-        await supabase.from('gps_positions').upsert({
-          operario: currentUser.nombre,
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'operario' })
-      }, () => {})
-    }
-    updateGPS()
-    setInterval(updateGPS, 30000)
   }
 
   await load()
