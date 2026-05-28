@@ -13,8 +13,11 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
         <option value="habilitado">Habilitado</option>
         <option value="cancelado">Cancelados</option>
       </select>
-      <input type="date" class="date-picker-input" id="pk-fecha" placeholder="Fecha">
-      <button class="btn-sm" id="pk-limpiar-fecha" style="display:none"><i class="ti ti-x"></i> Hoy</button>
+    </div>
+    <div class="date-picker-row" style="margin-bottom:12px;">
+      <span class="date-picker-label">Filtrar por fecha</span>
+      <input type="date" class="date-picker-input" id="pk-fecha">
+      <button class="btn-sm" id="pk-limpiar-fecha" style="display:none"><i class="ti ti-x"></i> Limpiar</button>
     </div>
     <div id="pk-resumen-dia" style="display:none;margin-bottom:16px;"></div>
     <div id="picking-table-wrap"><div class="loading">Cargando...</div></div>
@@ -316,24 +319,24 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     const cancelados = lista.filter(p => p.estado === 'cancelado').length
     resumenDiv.style.display = 'block'
     resumenDiv.innerHTML = `
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:4px;">
-        <div class="stat-card" style="flex:1;min-width:100px;padding:12px 16px;">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <div class="stat-card" style="flex:1;min-width:90px;padding:12px 16px;">
           <div class="stat-label">Pedidos</div>
           <div class="stat-value" style="font-size:22px">${activos.length}</div>
         </div>
-        <div class="stat-card" style="flex:1;min-width:100px;padding:12px 16px;">
+        <div class="stat-card" style="flex:1;min-width:90px;padding:12px 16px;">
           <div class="stat-label">Líneas</div>
           <div class="stat-value" style="font-size:22px">${totalLineas}</div>
         </div>
-        <div class="stat-card" style="flex:1;min-width:100px;padding:12px 16px;">
+        <div class="stat-card" style="flex:1;min-width:90px;padding:12px 16px;">
           <div class="stat-label">Bultos</div>
           <div class="stat-value" style="font-size:22px;color:#d4a830">${totalBultos || '—'}</div>
         </div>
-        <div class="stat-card" style="flex:1;min-width:100px;padding:12px 16px;">
+        <div class="stat-card" style="flex:1;min-width:90px;padding:12px 16px;">
           <div class="stat-label">Habilitados</div>
           <div class="stat-value" style="font-size:22px;color:#52c452">${habilitados}</div>
         </div>
-        ${cancelados > 0 ? `<div class="stat-card" style="flex:1;min-width:100px;padding:12px 16px;">
+        ${cancelados > 0 ? `<div class="stat-card" style="flex:1;min-width:90px;padding:12px 16px;">
           <div class="stat-label">Cancelados</div>
           <div class="stat-value" style="font-size:22px;color:#e05555">${cancelados}</div>
         </div>` : ''}
@@ -525,7 +528,6 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     await load()
   }
 
-  // Filtro de fecha
   el.querySelector('#pk-fecha').onchange = () => {
     const fecha = el.querySelector('#pk-fecha').value
     el.querySelector('#pk-limpiar-fecha').style.display = fecha ? 'flex' : 'none'
@@ -546,10 +548,11 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     const f = el.querySelector('#pk-filter').value
     const fecha = el.querySelector('#pk-fecha').value
 
-    let lista = allPicking.filter(p => {
+    const lista = allPicking.filter(p => {
       const matchQ = p.nota_pedido.toLowerCase().includes(q) || p.cliente_nombre.toLowerCase().includes(q) || (p.codigo_interno || '').toLowerCase().includes(q)
       const matchF = f === '' ? p.estado !== 'cancelado' : p.estado === f
-      const matchFecha = !fecha ? true : (p.fecha === fecha || new Date(p.hora_registro).toISOString().split('T')[0] === fecha)
+      const fechaPicking = p.fecha || new Date(p.hora_registro).toISOString().split('T')[0]
+      const matchFecha = !fecha ? true : fechaPicking === fecha
       return matchQ && matchF && matchFecha
     })
 
