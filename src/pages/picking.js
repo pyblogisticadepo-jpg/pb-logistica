@@ -45,6 +45,10 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
             <input type="hidden" id="s1-cliente-nombre">
             <div class="form-hint">Buscá un cliente existente o escribí uno nuevo</div>
           </div>
+          <div class="form-row">
+            <label class="form-label">Bultos <span style="color:#555;font-size:10px;letter-spacing:1px">(opcional)</span></label>
+            <input class="form-input" id="s1-bultos" type="number" min="1" placeholder="Ej: 3 — podés completarlo después">
+          </div>
         </div>
         <div class="modal-footer"><button class="btn-cancel" id="cancel-pk1">Cancelar</button><button class="btn-confirm" id="save-pk1">Registrar — En preparación</button></div>
       </div>
@@ -110,6 +114,7 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
           <div class="form-row">
             <label class="form-label">Cantidad de bultos <span class="req">*</span></label>
             <input class="form-input" id="s3-bultos" type="number" min="1" placeholder="Ej: 3">
+            <div class="form-hint" id="s3-bultos-hint" style="display:none;color:#52c452"><i class="ti ti-check" style="font-size:11px"></i> Cargado en apertura — podés modificarlo</div>
           </div>
         </div>
         <div class="modal-footer"><button class="btn-cancel" id="cancel-pk3">Cancelar</button><button class="btn-confirm" id="save-pk3">Confirmar documentación</button></div>
@@ -454,7 +459,14 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     el.querySelector('#pk3-title').textContent = 'Confirmar doc. — ' + (p.codigo_interno || p.nota_pedido)
     el.querySelector('#s3-doc').value = ''
     el.querySelector('#s3-warn').style.display = 'none'
-    el.querySelector('#s3-bultos').value = ''
+    // Pre-cargar bultos si ya fueron cargados en apertura
+    if (p.bultos) {
+      el.querySelector('#s3-bultos').value = p.bultos
+      el.querySelector('#s3-bultos-hint').style.display = 'block'
+    } else {
+      el.querySelector('#s3-bultos').value = ''
+      el.querySelector('#s3-bultos-hint').style.display = 'none'
+    }
     m3.classList.add('open')
   }
 
@@ -462,6 +474,7 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     el.querySelector('#btn-new-picking').onclick = () => {
       el.querySelector('#s1-nota').value = ''
       el.querySelector('#s1-lineas').value = ''
+      el.querySelector('#s1-bultos').value = ''
       searchInput.value = ''
       el.querySelector('#s1-cliente-id').value = ''
       el.querySelector('#s1-cliente-nombre').value = ''
@@ -476,6 +489,7 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     const lineas = parseInt(el.querySelector('#s1-lineas').value)
     const clienteNombre = el.querySelector('#s1-cliente-nombre').value.trim() || searchInput.value.trim()
     const clienteIdExistente = el.querySelector('#s1-cliente-id').value
+    const bultosApertura = parseInt(el.querySelector('#s1-bultos').value) || null
     if (!nota || !clienteNombre || !lineas) { alert('Completá todos los campos'); return }
     let clienteId = clienteIdExistente || null
     if (!clienteId) {
@@ -490,6 +504,7 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
       cliente_id: clienteId,
       cliente_nombre: clienteNombre,
       lineas,
+      bultos: bultosApertura,
       estado: 'preparacion'
     })
     m1.classList.remove('open')
