@@ -21,7 +21,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
             <select class="form-select" id="salida-vehiculo">
               <option value="">— seleccionar —</option>
               <option>Berlingo blanca</option>
-              <option>Partner gris</option>
+              <option>Kangoo blanca</option>
               <option>Sprinter verde</option>
               <option>Saveiro</option>
               <option value="vehiculo-personal">🚗 Vehículo personal</option>
