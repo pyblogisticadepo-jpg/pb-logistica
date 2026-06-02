@@ -155,7 +155,6 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     const { error } = await supabase.from('recorridos').update({ estado: 'completado', km_regreso: km }).eq('id', activeRecorridoId)
     if (error) { alert('Error: ' + error.message); return }
     if (!esPersonal && r.vehiculo) await supabase.from('vehiculos').update({ en_uso: false, km_actual: km }).eq('nombre', r.vehiculo)
-    // Liberar pedidos rechazados
     const rechazados = r.recorrido_pedidos.filter(p => p.estado === 'pendiente' && p.observaciones)
     for (const p of rechazados) {
       if (p.codigo_interno) {
@@ -272,21 +271,17 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
   })
 
   async function limpiarRechazadosHuerfanos() {
-    // Buscar recorridos completados con pedidos rechazados que no se liberaron
     const { data: recCompletados } = await supabase
       .from('recorridos').select('id').eq('estado', 'completado')
     if (!recCompletados || recCompletados.length === 0) return
     const idsCompletados = recCompletados.map(r => r.id)
-
     const { data: rechazadosHuerfanos } = await supabase
       .from('recorrido_pedidos')
       .select('id, nota_pedido, codigo_interno')
       .eq('estado', 'pendiente')
       .not('observaciones', 'is', null)
       .in('recorrido_id', idsCompletados)
-
     if (!rechazadosHuerfanos || rechazadosHuerfanos.length === 0) return
-
     for (const p of rechazadosHuerfanos) {
       if (p.codigo_interno) {
         await supabase.from('picking').update({ estado: 'habilitado' }).eq('codigo_interno', p.codigo_interno)
@@ -299,7 +294,6 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
   async function load() {
     const today = new Date().toISOString().split('T')[0]
 
-    // Limpiar automáticamente pedidos rechazados en recorridos completados
     await limpiarRechazadosHuerfanos()
 
     let query = supabase.from('recorridos').select(`*, recorrido_pedidos(*)`).eq('fecha', today).order('created_at', { ascending: false })
@@ -435,6 +429,11 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
               ${!isObserver && listoParaRegresar ? `<button class="btn-sm green" data-regreso="${r.id}"><i class="ti ti-home"></i> Confirmar regreso</button>` : ''}
             </div>
           </div>
+          ${r.estado === 'pendiente' ? `
+            <div style="background:#1a1500;border:1px solid #2a2000;padding:10px 14px;border-radius:2px;font-size:12px;color:#d4a830;margin-bottom:12px;display:flex;align-items:center;gap:8px;">
+              <i class="ti ti-alert-triangle" style="font-size:14px"></i>
+              <span>Confirmá la salida antes de registrar entregas</span>
+            </div>` : ''}
           ${tot === 0 ? '<div style="color:#444;font-size:12px;padding:8px 0">Sin pedidos en este recorrido</div>' :
           r.recorrido_pedidos.map(p => `
             <div class="pedido-card ${p.estado === 'entregado' ? 'entregado' : p.observaciones ? 'rechazado' : ''}">
@@ -452,6 +451,8 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
                   ${!isObserver && p.estado === 'pendiente' && !p.observaciones && r.estado === 'en-ruta' ? `
                     <button class="btn-sm green" data-entregar="${p.id}"><i class="ti ti-check"></i> Entregado</button>
                     <button class="btn-sm" style="border-color:#3a1a1a;color:#e05555" data-no-entregar="${p.id}"><i class="ti ti-x"></i> No entregado</button>
+                  ` : !isObserver && p.estado === 'pendiente' && !p.observaciones && r.estado === 'pendiente' ? `
+                    <span style="font-size:10px;color:#d4a830;text-align:right;line-height:1.6">⚠️ Confirmá<br>la salida<br>primero</span>
                   ` : p.estado === 'entregado' ? `<span class="badge badge-ok" style="font-size:9px">✓ ${p.hora_entrega || ''}</span>`
                     : p.observaciones ? `<span class="badge" style="background:#2a0a0a;color:#e05555;font-size:9px">✗ Rechazado</span>` : ''}
                 </div>
