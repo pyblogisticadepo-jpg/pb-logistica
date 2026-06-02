@@ -1,5 +1,6 @@
 import { supabase } from './lib/supabase.js'
 import { renderResumen } from './pages/resumen.js'
+import { renderHistorial } from './pages/historial.js'
 import { renderPicking } from './pages/picking.js'
 import { renderClientes } from './pages/clientes.js'
 import { renderTransportes } from './pages/transportes.js'
@@ -28,6 +29,7 @@ const ROLES_CLASS = {
 
 const MODULES = [
   { id: 'resumen',       label: 'Resumen diario', icon: 'ti-layout-dashboard', roles: ['jefe','logistica','operario','vendedor','observador'], section: 'General' },
+  { id: 'historial',     label: 'Historial',      icon: 'ti-history',          roles: ['jefe','logistica','vendedor','observador'],            section: 'General' },
   { id: 'clientes',      label: 'Clientes',        icon: 'ti-building-store',   roles: ['jefe','logistica','vendedor','observador'],            section: 'Operaciones' },
   { id: 'transportes',   label: 'Transportes',     icon: 'ti-truck',            roles: ['jefe','logistica','operario','observador'],            section: 'Operaciones' },
   { id: 'picking',       label: 'Picking',         icon: 'ti-package',          roles: ['jefe','logistica','observador'],                       section: 'Operaciones' },
@@ -77,6 +79,7 @@ function renderApp() {
         <nav class="sidebar" id="main-nav"></nav>
         <div class="content" id="main-content">
           <div id="page-resumen" class="page"></div>
+          <div id="page-historial" class="page"></div>
           <div id="page-clientes" class="page"></div>
           <div id="page-transportes" class="page"></div>
           <div id="page-picking" class="page"></div>
@@ -208,6 +211,7 @@ export function showPage(pageId) {
   const ctx = { currentUser, showPage, supabase, isObserver }
   switch (pageId) {
     case 'resumen':       renderResumen(pageEl, ctx); break
+    case 'historial':     renderHistorial(pageEl, ctx); break
     case 'clientes':      renderClientes(pageEl, ctx); break
     case 'transportes':   renderTransportes(pageEl, ctx); break
     case 'picking':       renderPicking(pageEl, ctx); break
