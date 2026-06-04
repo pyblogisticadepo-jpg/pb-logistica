@@ -295,8 +295,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     const today = new Date().toISOString().split('T')[0]
 
     await limpiarRechazadosHuerfanos()
-
-    let query = supabase.from('recorridos').select(`*, recorrido_pedidos(*)`).eq('fecha', today).order('created_at', { ascending: false })
+    let query = supabase.from('recorridos').select(`*, recorrido_pedidos(*)`).or(`fecha.eq.${today},estado.eq.en-ruta`).order('created_at', { ascending: false })
     if (currentUser.rol === 'operario') query = query.eq('operario', currentUser.nombre)
     const { data: recData } = await query
     currentRecorridos = recData || []
