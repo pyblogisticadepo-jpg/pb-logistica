@@ -62,6 +62,7 @@ async function loadLeaflet() {
 
 export async function renderRecorridos(el, { supabase, currentUser, isObserver }) {
   const canEdit = ['jefe','logistica'].includes(currentUser.rol)
+  const isOperario = currentUser.rol === 'operario'
 
   if (mapInterval) { clearInterval(mapInterval); mapInterval = null }
 
@@ -80,7 +81,7 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
     <div class="tab-content" id="tab-mapa">
       <div id="map-container" style="height:420px;border-radius:2px;overflow:hidden;border:1px solid #1e1e1e;"></div>
       <div id="map-legend" style="margin-top:12px;display:flex;flex-direction:column;gap:8px;"></div>
-      <div style="font-size:11px;color:#2a2a2a;margin-top:8px;text-align:center">GPS se actualiza cada 30s · El operario debe tener la app abierta</div>
+      <div style="font-size:11px;color:#444;margin-top:8px;text-align:center">GPS se actualiza cada 30s · El operario debe tener la app abierta</div>
     </div>
 
     <div class="modal-overlay" id="modal-new-rec">
@@ -114,6 +115,94 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
           <button class="btn-confirm" id="optimizar-btn"><i class="ti ti-route"></i> Optimizar y crear</button>
         </div>
       </div>
+    </div>
+
+    <div class="modal-overlay" id="modal-salida-rec">
+      <div class="modal"><div class="modal-top-bar orange"></div>
+        <div class="modal-header">
+          <span class="modal-title" id="salida-rec-title">Confirmar salida</span>
+          <button class="modal-close" id="close-salida-rec"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div style="background:#0d1a0d;border:1px solid #1a3a1a;padding:12px 16px;border-radius:2px;font-size:12px;color:#3a6a3a;margin-bottom:20px;display:flex;gap:10px;">
+            <i class="ti ti-info-circle" style="color:#52c452;flex-shrink:0"></i>
+            <span>Al confirmar la salida los pedidos pasan a <strong>En reparto</strong>.</span>
+          </div>
+          <div class="form-row">
+            <label class="form-label">Vehículo <span class="req">*</span></label>
+            <select class="form-select" id="salida-rec-vehiculo">
+              <option value="">— seleccionar —</option>
+              <option>Berlingo blanca</option>
+              <option>Kangoo blanca</option>
+              <option>Sprinter verde</option>
+              <option>Saveiro</option>
+              <option value="vehiculo-personal">🚗 Vehículo personal</option>
+            </select>
+          </div>
+          <div class="form-row" id="salida-rec-km-wrap">
+            <label class="form-label">Km de salida <span class="req">*</span></label>
+            <input class="form-input" id="salida-rec-km" type="number" placeholder="Ej: 45820">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-cancel" id="cancel-salida-rec">Cancelar</button>
+          <button class="btn-confirm" id="save-salida-rec"><i class="ti ti-truck-delivery"></i> Confirmar salida</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="modal-regreso-rec">
+      <div class="modal"><div class="modal-top-bar green"></div>
+        <div class="modal-header">
+          <span class="modal-title">Confirmar regreso</span>
+          <button class="modal-close" id="close-regreso-rec"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div id="regreso-rec-resumen" style="background:#111;border:1px solid #1e1e1e;padding:14px 16px;border-radius:2px;margin-bottom:20px;font-size:13px;color:#666;line-height:1.8;"></div>
+          <div class="form-row" id="regreso-rec-km-wrap">
+            <label class="form-label">Km de regreso <span class="req">*</span></label>
+            <input class="form-input" id="regreso-rec-km" type="number" placeholder="Ej: 45951">
+          </div>
+          <div id="regreso-rec-km-diff" style="font-size:12px;margin-top:8px;"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-cancel" id="cancel-regreso-rec">Cancelar</button>
+          <button class="btn-confirm" id="save-regreso-rec"><i class="ti ti-home"></i> Confirmar regreso</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="modal-no-entregado-rec">
+      <div class="modal"><div class="modal-top-bar" style="background:#e05555"></div>
+        <div class="modal-header">
+          <span class="modal-title">No se pudo entregar</span>
+          <button class="modal-close" id="close-no-entregado-rec"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div style="background:#1f0d0d;border:1px solid #3a1a1a;padding:12px 16px;border-radius:2px;font-size:12px;color:#8a3a3a;margin-bottom:20px;">
+            El pedido volverá a estado <strong>habilitado</strong> y quedará disponible para un nuevo recorrido.
+          </div>
+          <div class="form-row">
+            <label class="form-label">Motivo <span class="req">*</span></label>
+            <select class="form-select" id="no-entregado-rec-motivo">
+              <option value="">— seleccionar —</option>
+              <option value="Cliente ausente">Cliente ausente</option>
+              <option value="Local cerrado">Local cerrado</option>
+              <option value="Rechazó el pedido">Rechazó el pedido</option>
+              <option value="Dirección incorrecta">Dirección incorrecta</option>
+              <option value="Otro">Otro</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label class="form-label">Observaciones</label>
+            <textarea class="form-textarea" id="no-entregado-rec-obs" placeholder="Detalle adicional..." style="min-height:60px;resize:none"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-cancel" id="cancel-no-entregado-rec">Cancelar</button>
+          <button class="btn-confirm" style="background:#e05555" id="save-no-entregado-rec"><i class="ti ti-arrow-back"></i> Registrar y devolver</button>
+        </div>
+      </div>
     </div>`
 
   el.querySelectorAll('.tab-btn').forEach(btn => {
@@ -127,55 +216,217 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
   })
 
   let selectedPedidos = []
+  let activeRecorridoId = null
+  let activePedidoId = null
+  let currentRecorridos = []
+
   const modal = el.querySelector('#modal-new-rec')
   el.querySelector('#close-new-rec').onclick = () => modal.classList.remove('open')
   el.querySelector('#cancel-new-rec').onclick = () => modal.classList.remove('open')
   modal.onclick = (e) => { if (e.target === modal) modal.classList.remove('open') }
 
+  const modalSalida = el.querySelector('#modal-salida-rec')
+  ;['close-salida-rec','cancel-salida-rec'].forEach(id => {
+    el.querySelector('#' + id).onclick = () => modalSalida.classList.remove('open')
+  })
+  modalSalida.onclick = (e) => { if (e.target === modalSalida) modalSalida.classList.remove('open') }
+
+  const modalRegreso = el.querySelector('#modal-regreso-rec')
+  ;['close-regreso-rec','cancel-regreso-rec'].forEach(id => {
+    el.querySelector('#' + id).onclick = () => modalRegreso.classList.remove('open')
+  })
+  modalRegreso.onclick = (e) => { if (e.target === modalRegreso) modalRegreso.classList.remove('open') }
+
+  const modalNoEntregado = el.querySelector('#modal-no-entregado-rec')
+  ;['close-no-entregado-rec','cancel-no-entregado-rec'].forEach(id => {
+    el.querySelector('#' + id).onclick = () => modalNoEntregado.classList.remove('open')
+  })
+  modalNoEntregado.onclick = (e) => { if (e.target === modalNoEntregado) modalNoEntregado.classList.remove('open') }
+
+  el.querySelector('#salida-rec-vehiculo').onchange = () => {
+    const esPersonal = el.querySelector('#salida-rec-vehiculo').value === 'vehiculo-personal'
+    el.querySelector('#salida-rec-km-wrap').style.display = esPersonal ? 'none' : 'block'
+  }
+
+  el.querySelector('#regreso-rec-km').oninput = () => {
+    const km = parseInt(el.querySelector('#regreso-rec-km').value)
+    const r = currentRecorridos.find(x => x.id === activeRecorridoId)
+    const preview = el.querySelector('#regreso-rec-km-diff')
+    if (r && km && r.km_salida) {
+      const diff = km - r.km_salida
+      preview.innerHTML = diff > 0
+        ? `<span style="color:#52c452">Km recorridos: ${diff} km</span>`
+        : `<span style="color:#e05555">El km de regreso debe ser mayor al de salida</span>`
+    }
+  }
+
+  el.querySelector('#save-salida-rec').onclick = async () => {
+    const vehiculo = el.querySelector('#salida-rec-vehiculo').value
+    if (!vehiculo) { alert('Seleccioná un vehículo'); return }
+    const esPersonal = vehiculo === 'vehiculo-personal'
+    const km = esPersonal ? null : parseInt(el.querySelector('#salida-rec-km').value)
+    if (!esPersonal && !km) { alert('Ingresá el km de salida'); return }
+    const hora = new Date().toTimeString().slice(0,5)
+    const vehiculoLabel = esPersonal ? 'Vehículo personal' : vehiculo
+    const { error } = await supabase.from('recorridos').update({
+      estado: 'en-ruta', hora_salida: hora, vehiculo: vehiculoLabel, km_salida: km
+    }).eq('id', activeRecorridoId)
+    if (error) { alert('Error: ' + error.message); return }
+    if (!esPersonal) await supabase.from('vehiculos').update({ en_uso: true }).eq('nombre', vehiculo)
+    modalSalida.classList.remove('open')
+    await load()
+  }
+
+  el.querySelector('#save-regreso-rec').onclick = async () => {
+    const r = currentRecorridos.find(x => x.id === activeRecorridoId)
+    const esPersonal = r?.vehiculo === 'Vehículo personal'
+    const km = esPersonal ? null : parseInt(el.querySelector('#regreso-rec-km').value)
+    if (!esPersonal && (!km || km <= r.km_salida)) { alert('Ingresá un km de regreso válido'); return }
+    const { error } = await supabase.from('recorridos').update({ estado: 'completado', km_regreso: km }).eq('id', activeRecorridoId)
+    if (error) { alert('Error: ' + error.message); return }
+    if (!esPersonal && r.vehiculo) await supabase.from('vehiculos').update({ en_uso: false, km_actual: km }).eq('nombre', r.vehiculo)
+    const rechazados = r.recorrido_pedidos.filter(p => p.estado === 'pendiente' && p.observaciones)
+    for (const p of rechazados) {
+      if (p.codigo_interno) {
+        await supabase.from('picking').update({ estado: 'habilitado' }).eq('codigo_interno', p.codigo_interno)
+      } else {
+        await supabase.from('picking').update({ estado: 'habilitado' }).eq('nota_pedido', p.nota_pedido)
+      }
+    }
+    modalRegreso.classList.remove('open')
+    await load()
+  }
+
+  el.querySelector('#save-no-entregado-rec').onclick = async () => {
+    const motivo = el.querySelector('#no-entregado-rec-motivo').value
+    if (!motivo) { alert('Seleccioná un motivo'); return }
+    const obs = el.querySelector('#no-entregado-rec-obs').value.trim()
+    await supabase.from('recorrido_pedidos').update({
+      estado: 'pendiente',
+      observaciones: motivo + (obs ? ': ' + obs : '')
+    }).eq('id', activePedidoId)
+    modalNoEntregado.classList.remove('open')
+    await load()
+  }
+
+  el.querySelector('#rec-list').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button[data-salida], button[data-regreso], button[data-entregar], button[data-no-entregar]')
+    if (!btn) return
+
+    if (btn.dataset.salida) {
+      activeRecorridoId = parseInt(btn.dataset.salida)
+      const r = currentRecorridos.find(x => x.id === activeRecorridoId)
+      if (!r) return
+      el.querySelector('#salida-rec-title').textContent = 'Confirmar salida — ' + r.codigo
+      el.querySelector('#salida-rec-vehiculo').value = ''
+      el.querySelector('#salida-rec-km').value = ''
+      el.querySelector('#salida-rec-km-wrap').style.display = 'block'
+      modalSalida.classList.add('open')
+      return
+    }
+
+    if (btn.dataset.regreso) {
+      activeRecorridoId = parseInt(btn.dataset.regreso)
+      const r = currentRecorridos.find(x => x.id === activeRecorridoId)
+      if (!r) return
+      const esPersonal = r.vehiculo === 'Vehículo personal'
+      const rechazados = r.recorrido_pedidos.filter(p => p.estado === 'pendiente' && p.observaciones).length
+      el.querySelector('#regreso-rec-resumen').innerHTML = `
+        <strong style="color:#ccc">${r.codigo}</strong><br>
+        Operario: ${r.operario} · Vehículo: ${r.vehiculo || '—'}<br>
+        Salida: ${r.hora_salida || '—'} · Km salida: ${r.km_salida || '—'}
+        ${rechazados > 0 ? `<br><span style="color:#e05555;font-size:12px"><i class="ti ti-alert-circle"></i> ${rechazados} pedido${rechazados > 1 ? 's' : ''} no entregado${rechazados > 1 ? 's' : ''} — volverán a entregas pendientes</span>` : ''}`
+      el.querySelector('#regreso-rec-km').value = ''
+      el.querySelector('#regreso-rec-km-diff').innerHTML = ''
+      el.querySelector('#regreso-rec-km-wrap').style.display = esPersonal ? 'none' : 'block'
+      modalRegreso.classList.add('open')
+      return
+    }
+
+    if (btn.dataset.entregar) {
+      const hora = new Date().toTimeString().slice(0,5)
+      const { error } = await supabase.from('recorrido_pedidos').update({
+        estado: 'entregado', hora_entrega: hora
+      }).eq('id', parseInt(btn.dataset.entregar))
+      if (error) { alert('Error: ' + error.message); return }
+      await load()
+      return
+    }
+
+    if (btn.dataset.noEntregar) {
+      activePedidoId = parseInt(btn.dataset.noEntregar)
+      el.querySelector('#no-entregado-rec-motivo').value = ''
+      el.querySelector('#no-entregado-rec-obs').value = ''
+      modalNoEntregado.classList.add('open')
+      return
+    }
+  })
+
   async function load() {
-    let query = supabase.from('recorridos').select(`*, recorrido_pedidos(*)`).order('created_at', { ascending: false })
-    if (currentUser.rol === 'operario') query = query.eq('operario', currentUser.nombre)
+    const today = new Date().toISOString().split('T')[0]
+    let query = supabase.from('recorridos').select(`*, recorrido_pedidos(*)`).or(`fecha.eq.${today},estado.eq.en-ruta`).order('created_at', { ascending: false })
+    if (isOperario) query = query.eq('operario', currentUser.nombre)
     const { data } = await query
-    const recorridos = data || []
-    el.querySelector('#rec-sub').textContent = recorridos.length + ' recorridos'
+    currentRecorridos = data || []
+    el.querySelector('#rec-sub').textContent = currentRecorridos.length + ' recorridos'
     const list = el.querySelector('#rec-list')
-    if (recorridos.length === 0) { list.innerHTML = '<div class="empty-state">Sin recorridos</div>'; return }
-    list.innerHTML = recorridos.map(r => {
+    if (currentRecorridos.length === 0) { list.innerHTML = '<div class="empty-state">Sin recorridos</div>'; return }
+
+    list.innerHTML = currentRecorridos.map(r => {
       const ent = r.recorrido_pedidos.filter(p => p.estado === 'entregado').length
+      const tot = r.recorrido_pedidos.length
+      const rechazados = r.recorrido_pedidos.filter(p => p.estado === 'pendiente' && p.observaciones).length
+      const listoParaRegresar = r.estado === 'en-ruta' && (ent + rechazados === tot) && tot > 0
       const estBadge = r.estado === 'en-ruta' ? '<span class="badge badge-en-ruta">En ruta</span>' : r.estado === 'completado' ? '<span class="badge badge-completado">Completado</span>' : '<span class="badge badge-pendiente">Pendiente</span>'
       const pedidosConDir = r.recorrido_pedidos.filter(p => p.direccion)
       const mapsUrl = pedidosConDir.length > 0 ? generarLinkMaps(pedidosConDir.map(p => ({ dir: p.direccion }))) : null
-      return `<div class="recorrido-card">
-        <div class="recorrido-card-header" data-toggle="${r.id}">
+      const puedeOperar = !isObserver && (canEdit || (isOperario && r.operario === currentUser.nombre))
+
+      return `<div style="background:#111;border:1px solid #1e1e1e;padding:16px 18px;margin-bottom:16px;border-radius:2px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px">
           <div>
-            <div style="font-family:'DM Mono',monospace;font-size:12px;color:#555;margin-bottom:3px">${r.codigo}</div>
-            <div style="font-size:13px;color:#ccc">Operario: <strong>${r.operario}</strong> · ${r.recorrido_pedidos.length} paradas · ${ent} entregadas · ${estBadge}${r.vehiculo ? ' · ' + r.vehiculo : ''}</div>
+            <div style="font-family:'DM Mono',monospace;font-size:14px;font-weight:600;color:#fff;margin-bottom:4px">${r.codigo}</div>
+            <div style="font-size:12px;color:#555">${estBadge} · Operario: <strong style="color:#888">${r.operario}</strong> · ${ent}/${tot} entregas${rechazados > 0 ? ` · <span style="color:#e05555">${rechazados} rechazado${rechazados > 1 ? 's' : ''}</span>` : ''}${r.vehiculo ? ' · ' + r.vehiculo : ''}</div>
+            <div style="font-size:11px;color:#444;margin-top:3px">Km salida: <span style="font-family:'DM Mono',monospace">${r.km_salida || '—'}</span> · Km regreso: <span style="font-family:'DM Mono',monospace">${r.km_regreso || '—'}</span>${r.km_salida && r.km_regreso ? ' · <span style="color:#52c452;font-family:\'DM Mono\',monospace">' + (r.km_regreso - r.km_salida) + ' km</span>' : ''}${r.hora_salida ? ' · Salida: ' + r.hora_salida : ''}</div>
           </div>
-          <div style="display:flex;align-items:center;gap:8px">
-            ${mapsUrl ? `<a href="${mapsUrl}" target="_blank" onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:4px;padding:6px 10px;background:#0d1f0d;border:1px solid #1a3a1a;border-radius:2px;color:#52c452;font-size:11px;text-decoration:none;white-space:nowrap"><i class="ti ti-map-2"></i> Maps</a>` : ''}
-            <i class="ti ti-chevron-down" style="color:#444;font-size:16px"></i>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            ${mapsUrl ? `<a href="${mapsUrl}" target="_blank" style="display:flex;align-items:center;gap:4px;padding:6px 10px;background:#0d1f0d;border:1px solid #1a3a1a;border-radius:2px;color:#52c452;font-size:11px;text-decoration:none;white-space:nowrap"><i class="ti ti-map-2"></i> Maps</a>` : ''}
+            ${puedeOperar && r.estado === 'pendiente' ? `<button class="btn-sm orange" data-salida="${r.id}"><i class="ti ti-truck-delivery"></i> Confirmar salida</button>` : ''}
+            ${puedeOperar && listoParaRegresar ? `<button class="btn-sm green" data-regreso="${r.id}"><i class="ti ti-home"></i> Confirmar regreso</button>` : ''}
           </div>
         </div>
-        <div class="recorrido-card-body" id="rbody-${r.id}">
-          ${r.recorrido_pedidos.length === 0 ? '<div style="color:#444;font-size:12px;padding:8px">Sin paradas</div>' :
-          r.recorrido_pedidos.map(p => `
-            <div class="recorrido-stop">
-              <div class="stop-num ${p.tipo}">${p.orden}</div>
+        ${r.estado === 'pendiente' && puedeOperar ? `
+          <div style="background:#1a1500;border:1px solid #2a2000;padding:10px 14px;border-radius:2px;font-size:12px;color:#d4a830;margin-bottom:12px;display:flex;align-items:center;gap:8px;">
+            <i class="ti ti-alert-triangle" style="font-size:14px"></i>
+            <span>Confirmá la salida antes de registrar entregas</span>
+          </div>` : ''}
+        ${tot === 0 ? '<div style="color:#444;font-size:12px;padding:8px 0">Sin pedidos en este recorrido</div>' :
+        r.recorrido_pedidos.map(p => `
+          <div class="pedido-card ${p.estado === 'entregado' ? 'entregado' : p.observaciones ? 'rechazado' : ''}">
+            <div class="pedido-card-header">
+              <div class="pedido-orden ${p.tipo || 'pyb'}">${p.orden}</div>
               <div style="flex:1">
-                <div style="font-size:13px;color:#ccc;font-weight:500">${p.cliente_nombre}</div>
-                <div style="font-size:11px;color:#555;margin-top:2px">
+                <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:2px">${p.cliente_nombre}</div>
+                <div style="font-size:11px;color:#555">
                   ${p.codigo_interno ? `<span style="font-family:'DM Mono',monospace;color:#5aadee;font-size:10px">${p.codigo_interno}</span> · ` : ''}
-                  <i class="ti ti-map-pin" style="font-size:10px"></i> ${p.direccion || '—'}${p.tipo === 'externo' ? ' · ' + (p.transporte_nombre || '') : ''}
+                  <i class="ti ti-map-pin" style="font-size:10px"></i> ${p.direccion || '—'} · ${p.nota_pedido}${p.tipo === 'externo' ? ' · ' + (p.transporte_nombre || '') : ''}
                 </div>
+                ${p.observaciones ? `<div style="font-size:11px;color:#e05555;margin-top:3px"><i class="ti ti-alert-circle" style="font-size:10px"></i> ${p.observaciones}</div>` : ''}
               </div>
-              <div>${p.estado === 'entregado' ? `<span class="badge badge-ok" style="font-size:9px">✓ ${p.hora_entrega || ''}</span>` : '<span class="badge badge-pendiente" style="font-size:9px">Pendiente</span>'}</div>
-            </div>`).join('')}
-        </div>
+              <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
+                ${puedeOperar && p.estado === 'pendiente' && !p.observaciones && r.estado === 'en-ruta' ? `
+                  <button class="btn-sm green" data-entregar="${p.id}"><i class="ti ti-check"></i> Entregado</button>
+                  <button class="btn-sm" style="border-color:#3a1a1a;color:#e05555" data-no-entregar="${p.id}"><i class="ti ti-x"></i> No entregado</button>
+                ` : puedeOperar && p.estado === 'pendiente' && !p.observaciones && r.estado === 'pendiente' ? `
+                  <span style="font-size:10px;color:#d4a830;text-align:right;line-height:1.6">⚠️ Confirmá<br>la salida<br>primero</span>
+                ` : p.estado === 'entregado' ? `<span class="badge badge-ok" style="font-size:9px">✓ ${p.hora_entrega || ''}</span>`
+                  : p.observaciones ? `<span class="badge" style="background:#2a0a0a;color:#e05555;font-size:9px">✗ Rechazado</span>` : ''}
+              </div>
+            </div>
+            ${p.estado === 'entregado' ? `<div class="pedido-entregado-info"><span style="color:#52c452;font-family:'DM Mono',monospace;font-size:11px"><i class="ti ti-clock" style="font-size:10px"></i> Entregado ${p.hora_entrega || ''}</span></div>` : ''}
+          </div>`).join('')}
       </div>`
     }).join('')
-    list.querySelectorAll('[data-toggle]').forEach(h => {
-      h.onclick = () => document.getElementById('rbody-' + h.dataset.toggle).classList.toggle('open')
-    })
   }
 
   async function initMap() {
@@ -184,16 +435,12 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
     await loadLeaflet()
     if (mapInstance) { mapInstance.remove(); mapInstance = null }
     mapInstance = L.map(mapContainer).setView([DEPOSITO.lat, DEPOSITO.lng], 12)
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap'
-    }).addTo(mapInstance)
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(mapInstance)
     const depositoIcon = L.divIcon({
       html: `<div style="background:#fff;border:2px solid #555;width:14px;height:14px;border-radius:2px;"></div>`,
       iconSize: [14,14], iconAnchor: [7,7], className: ''
     })
-    L.marker([DEPOSITO.lat, DEPOSITO.lng], { icon: depositoIcon })
-      .addTo(mapInstance)
-      .bindPopup('<strong>Depósito P&B</strong>')
+    L.marker([DEPOSITO.lat, DEPOSITO.lng], { icon: depositoIcon }).addTo(mapInstance).bindPopup('<strong>Depósito P&B</strong>')
     await updateMapMarkers()
     if (mapInterval) clearInterval(mapInterval)
     mapInterval = setInterval(updateMapMarkers, 30000)
@@ -226,9 +473,7 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
           html: `<div style="background:${color};border:2px solid #fff;width:16px;height:16px;border-radius:50%;box-shadow:0 0 6px ${color}88;"></div>`,
           iconSize: [16,16], iconAnchor: [8,8], className: ''
         })
-        const marker = L.marker([pos.lat, pos.lng], { icon })
-          .addTo(mapInstance)
-          .bindPopup(`<strong>${r.operario}</strong><br>${r.codigo}<br>GPS: ${lastUpdate}`)
+        const marker = L.marker([pos.lat, pos.lng], { icon }).addTo(mapInstance).bindPopup(`<strong>${r.operario}</strong><br>${r.codigo}<br>GPS: ${lastUpdate}`)
         mapMarkers.push(marker)
       }
       legend.innerHTML += `
@@ -257,7 +502,6 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
       const notasEnRuta = new Set((enRuta || []).map(p => p.nota_pedido).filter(Boolean))
 
       const { data: pk } = await supabase.from('picking').select('id, nota_pedido, cliente_nombre, cliente_id, codigo_interno').eq('estado', 'habilitado')
-
       const disponiblesPk = (pk || []).filter(p => {
         if (p.codigo_interno) return !codigosEnRuta.has(p.codigo_interno)
         return !notasEnRuta.has(p.nota_pedido)
@@ -308,15 +552,7 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
               cb.checked = false
               item.style.borderColor = '#1e1e1e'
             } else {
-              selectedPedidos.push({
-                id,
-                nota: item.dataset.nota,
-                codigo: item.dataset.codigo || null,
-                cliente: item.dataset.cliente,
-                dir: item.dataset.dir,
-                tipo: item.dataset.tipo === 'pyb' ? 'pyb' : 'externo',
-                transporteNombre: item.dataset.transporteNombre || null
-              })
+              selectedPedidos.push({ id, nota: item.dataset.nota, codigo: item.dataset.codigo || null, cliente: item.dataset.cliente, dir: item.dataset.dir, tipo: item.dataset.tipo === 'pyb' ? 'pyb' : 'externo', transporteNombre: item.dataset.transporteNombre || null })
               cb.checked = true
               item.style.borderColor = '#5aadee'
             }
@@ -347,17 +583,7 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
         const codigo = `RPT-${today}-${num}`
         const { data: rec, error: recError } = await supabase.from('recorridos').insert({ codigo, operario, estado: 'pendiente' }).select().single()
         if (recError || !rec) { alert('Error: ' + (recError?.message || 'desconocido')); btn.disabled = false; return }
-        const pedidosInsert = pedidosOrdenados.map((p, i) => ({
-          recorrido_id: rec.id,
-          nota_pedido: p.nota,
-          codigo_interno: p.codigo || null,
-          cliente_nombre: p.cliente,
-          direccion: p.dir || null,
-          tipo: p.tipo,
-          transporte_nombre: p.transporteNombre || null,
-          orden: i + 1,
-          estado: 'pendiente'
-        }))
+        const pedidosInsert = pedidosOrdenados.map((p, i) => ({ recorrido_id: rec.id, nota_pedido: p.nota, codigo_interno: p.codigo || null, cliente_nombre: p.cliente, direccion: p.dir || null, tipo: p.tipo, transporte_nombre: p.transporteNombre || null, orden: i + 1, estado: 'pendiente' }))
         const { error: pedError } = await supabase.from('recorrido_pedidos').insert(pedidosInsert)
         if (pedError) { alert('Error: ' + pedError.message); btn.disabled = false; return }
         modal.classList.remove('open')
@@ -406,21 +632,14 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
       if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
         navigator.serviceWorker.controller.postMessage({
           type: 'START_GPS',
-          data: {
-            supabaseUrl: SUPABASE_URL,
-            supabaseKey: SUPABASE_KEY,
-            operario: currentUser.nombre
-          }
+          data: { supabaseUrl: SUPABASE_URL, supabaseKey: SUPABASE_KEY, operario: currentUser.nombre }
         })
       } else {
         if (!navigator.geolocation) return
         const updateGPS = async () => {
           navigator.geolocation.getCurrentPosition(async pos => {
             await supabase.from('gps_positions').upsert({
-              operario: currentUser.nombre,
-              lat: pos.coords.latitude,
-              lng: pos.coords.longitude,
-              updated_at: new Date().toISOString()
+              operario: currentUser.nombre, lat: pos.coords.latitude, lng: pos.coords.longitude, updated_at: new Date().toISOString()
             }, { onConflict: 'operario' })
           }, () => {})
         }
@@ -428,11 +647,7 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
         setInterval(updateGPS, 30000)
       }
     }
-    if (navigator.serviceWorker.controller) {
-      startGPS()
-    } else {
-      navigator.serviceWorker.ready.then(startGPS)
-    }
+    if (navigator.serviceWorker.controller) { startGPS() } else { navigator.serviceWorker.ready.then(startGPS) }
   }
 
   await load()
