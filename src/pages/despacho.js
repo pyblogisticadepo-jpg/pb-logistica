@@ -1,8 +1,11 @@
 export async function renderDespacho(el, { supabase, currentUser, isObserver }) {
+  const canEdit = ['jefe','logistica'].includes(currentUser.rol)
+
   el.innerHTML = `
     <div class="page-header">
       <div class="page-title-group"><span class="page-title">Despacho</span><span class="page-subtitle" id="despacho-sub"></span></div>
     </div>
+    ${!canEdit ? '<div class="observer-badge"><i class="ti ti-eye"></i> Solo lectura</div>' : ''}
     <div id="despacho-content"><div class="loading">Cargando...</div></div>
 
     <div class="modal-overlay" id="modal-salida">
@@ -271,16 +274,12 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
   })
 
   async function limpiarRechazadosHuerfanos() {
-    const { data: recCompletados } = await supabase
-      .from('recorridos').select('id').eq('estado', 'completado')
+    const { data: recCompletados } = await supabase.from('recorridos').select('id').eq('estado', 'completado')
     if (!recCompletados || recCompletados.length === 0) return
     const idsCompletados = recCompletados.map(r => r.id)
     const { data: rechazadosHuerfanos } = await supabase
-      .from('recorrido_pedidos')
-      .select('id, nota_pedido, codigo_interno')
-      .eq('estado', 'pendiente')
-      .not('observaciones', 'is', null)
-      .in('recorrido_id', idsCompletados)
+      .from('recorrido_pedidos').select('id, nota_pedido, codigo_interno')
+      .eq('estado', 'pendiente').not('observaciones', 'is', null).in('recorrido_id', idsCompletados)
     if (!rechazadosHuerfanos || rechazadosHuerfanos.length === 0) return
     for (const p of rechazadosHuerfanos) {
       if (p.codigo_interno) {
@@ -293,43 +292,36 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
 
   async function load() {
     const today = new Date().toISOString().split('T')[0]
-
     await limpiarRechazadosHuerfanos()
-    let query = supabase.from('recorridos').select(`*, recorrido_pedidos(*)`).or(`fecha.eq.${today},estado.eq.en-ruta`).order('created_at', { ascending: false })
-    if (currentUser.rol === 'operario') query = query.eq('operario', currentUser.nombre)
-    const { data: recData } = await query
+
+    const { data: recData } = await supabase
+      .from('recorridos').select(`*, recorrido_pedidos(*)`)
+      .or(`fecha.eq.${today},estado.eq.en-ruta`)
+      .order('created_at', { ascending: false })
     currentRecorridos = recData || []
 
     const { data: allPicking } = await supabase
-      .from('picking')
-      .select('id, nota_pedido, codigo_interno, cliente_nombre, cliente_id, documentacion')
+      .from('picking').select('id, nota_pedido, codigo_interno, cliente_nombre, cliente_id, documentacion')
       .eq('estado', 'habilitado')
 
     const clienteIds = [...new Set((allPicking || []).map(p => p.cliente_id).filter(Boolean))]
     let clientesMap = {}
     if (clienteIds.length > 0) {
-      const { data: clientes } = await supabase
-        .from('clientes').select('id, transporte_tipo, transporte_id').in('id', clienteIds)
+      const { data: clientes } = await supabase.from('clientes').select('id, transporte_tipo, transporte_id').in('id', clienteIds)
       ;(clientes || []).forEach(c => { clientesMap[c.id] = c })
     }
 
-    const { data: transportesRetira } = await supabase
-      .from('transportes').select('id, nombre').eq('retira_deposito', true)
+    const { data: transportesRetira } = await supabase.from('transportes').select('id, nombre').eq('retira_deposito', true)
     const idsRetiraDeposito = new Set((transportesRetira || []).map(t => t.id))
     const transportesRetiraMap = {}
     ;(transportesRetira || []).forEach(t => { transportesRetiraMap[t.id] = t.nombre })
 
-    const { data: todosEntregados } = await supabase
-      .from('recorrido_pedidos').select('nota_pedido, codigo_interno').eq('estado', 'entregado')
+    const { data: todosEntregados } = await supabase.from('recorrido_pedidos').select('nota_pedido, codigo_interno').eq('estado', 'entregado')
     const codigosYaEntregados = new Set((todosEntregados || []).map(p => p.codigo_interno).filter(Boolean))
     const notasYaEntregadas = new Set((todosEntregados || []).map(p => p.nota_pedido).filter(Boolean))
 
-    const notasEnRecorridoActivo = currentRecorridos
-      .filter(r => r.estado !== 'completado')
-      .flatMap(r => r.recorrido_pedidos.map(p => p.nota_pedido))
-    const codigosEnRecorridoActivo = new Set(currentRecorridos
-      .filter(r => r.estado !== 'completado')
-      .flatMap(r => r.recorrido_pedidos.map(p => p.codigo_interno).filter(Boolean)))
+    const notasEnRecorridoActivo = currentRecorridos.filter(r => r.estado !== 'completado').flatMap(r => r.recorrido_pedidos.map(p => p.nota_pedido))
+    const codigosEnRecorridoActivo = new Set(currentRecorridos.filter(r => r.estado !== 'completado').flatMap(r => r.recorrido_pedidos.map(p => p.codigo_interno).filter(Boolean)))
 
     const { data: todasRetiras } = await supabase.from('retiras').select('nota_pedido, codigo_interno')
     const codigosYaRetirados = new Set((todasRetiras || []).map(r => r.codigo_interno).filter(Boolean))
@@ -342,11 +334,9 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       if (p.codigo_interno ? codigosYaEntregados.has(p.codigo_interno) : notasYaEntregadas.has(p.nota_pedido)) return
       if (p.codigo_interno ? codigosEnRecorridoActivo.has(p.codigo_interno) : notasEnRecorridoActivo.includes(p.nota_pedido)) return
       if (p.codigo_interno ? codigosYaRetirados.has(p.codigo_interno) : notasYaRetiradas.has(p.nota_pedido)) return
-
       const cliente = clientesMap[p.cliente_id]
       if (!cliente) return
       const tipo = cliente.transporte_tipo
-
       if (tipo === 'retira') {
         retirosPendientes.push({ ...p, _label: 'Retira cliente', _color: '#4dd4d4', _border: '#1a3636' })
       } else if (tipo === 'externo' && idsRetiraDeposito.has(cliente.transporte_id)) {
@@ -391,7 +381,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
               ${p.nota_pedido} · Doc: ${p.documentacion === 'fac_remito' ? 'Fac. y Remito' : p.documentacion === 'fac_etiqueta' ? 'Fac. y Etiqueta' : p.documentacion || '—'}
             </div>
           </div>
-          ${!isObserver ? `<button class="btn-sm green" data-marcar-retiro="${p.id}"><i class="ti ti-check"></i> Marcar retirado</button>` : ''}
+          ${canEdit ? `<button class="btn-sm green" data-marcar-retiro="${p.id}"><i class="ti ti-check"></i> Marcar retirado</button>` : ''}
         </div>`).join('')
     }
 
@@ -424,15 +414,10 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
               <div style="font-size:11px;color:#444;margin-top:3px">Km salida: <span style="font-family:'DM Mono',monospace">${r.km_salida || '—'}</span> · Km regreso: <span style="font-family:'DM Mono',monospace">${r.km_regreso || '—'}</span>${r.km_salida && r.km_regreso ? ' · <span style="color:#52c452;font-family:\'DM Mono\',monospace">' + (r.km_regreso - r.km_salida) + ' km</span>' : ''}${r.hora_salida ? ' · Salida: ' + r.hora_salida : ''}</div>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
-              ${!isObserver && r.estado === 'pendiente' ? `<button class="btn-sm orange" data-salida="${r.id}"><i class="ti ti-truck-delivery"></i> Confirmar salida</button>` : ''}
-              ${!isObserver && listoParaRegresar ? `<button class="btn-sm green" data-regreso="${r.id}"><i class="ti ti-home"></i> Confirmar regreso</button>` : ''}
+              ${canEdit && r.estado === 'pendiente' ? `<button class="btn-sm orange" data-salida="${r.id}"><i class="ti ti-truck-delivery"></i> Confirmar salida</button>` : ''}
+              ${canEdit && listoParaRegresar ? `<button class="btn-sm green" data-regreso="${r.id}"><i class="ti ti-home"></i> Confirmar regreso</button>` : ''}
             </div>
           </div>
-          ${r.estado === 'pendiente' ? `
-            <div style="background:#1a1500;border:1px solid #2a2000;padding:10px 14px;border-radius:2px;font-size:12px;color:#d4a830;margin-bottom:12px;display:flex;align-items:center;gap:8px;">
-              <i class="ti ti-alert-triangle" style="font-size:14px"></i>
-              <span>Confirmá la salida antes de registrar entregas</span>
-            </div>` : ''}
           ${tot === 0 ? '<div style="color:#444;font-size:12px;padding:8px 0">Sin pedidos en este recorrido</div>' :
           r.recorrido_pedidos.map(p => `
             <div class="pedido-card ${p.estado === 'entregado' ? 'entregado' : p.observaciones ? 'rechazado' : ''}">
@@ -447,11 +432,9 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
                   ${p.observaciones ? `<div style="font-size:11px;color:#e05555;margin-top:3px"><i class="ti ti-alert-circle" style="font-size:10px"></i> ${p.observaciones}</div>` : ''}
                 </div>
                 <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
-                  ${!isObserver && p.estado === 'pendiente' && !p.observaciones && r.estado === 'en-ruta' ? `
+                  ${canEdit && p.estado === 'pendiente' && !p.observaciones && r.estado === 'en-ruta' ? `
                     <button class="btn-sm green" data-entregar="${p.id}"><i class="ti ti-check"></i> Entregado</button>
                     <button class="btn-sm" style="border-color:#3a1a1a;color:#e05555" data-no-entregar="${p.id}"><i class="ti ti-x"></i> No entregado</button>
-                  ` : !isObserver && p.estado === 'pendiente' && !p.observaciones && r.estado === 'pendiente' ? `
-                    <span style="font-size:10px;color:#d4a830;text-align:right;line-height:1.6">⚠️ Confirmá<br>la salida<br>primero</span>
                   ` : p.estado === 'entregado' ? `<span class="badge badge-ok" style="font-size:9px">✓ ${p.hora_entrega || ''}</span>`
                     : p.observaciones ? `<span class="badge" style="background:#2a0a0a;color:#e05555;font-size:9px">✗ Rechazado</span>` : ''}
                 </div>
