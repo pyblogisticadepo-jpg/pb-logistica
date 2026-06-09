@@ -182,7 +182,7 @@ export async function renderAutoelevador(el, { supabase, currentUser, isObserver
 
   async function loadHistorial(mes) {
     const desde = mes + '-01'
-    const hasta = mes + '-31'
+    const hasta = new Date(mes.split('-')[0], mes.split('-')[1], 0).toISOString().split('T')[0]
     const { data } = await supabase
       .from('autoelevador').select('*')
       .gte('fecha', desde).lte('fecha', hasta)
