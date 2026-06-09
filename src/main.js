@@ -9,6 +9,7 @@ import { renderRecorridos } from './pages/recorridos.js'
 import { renderVehiculos } from './pages/vehiculos.js'
 import { renderRecepcion } from './pages/recepcion.js'
 import { renderStock } from './pages/stock.js'
+import { renderAutoelevador } from './pages/autoelevador.js'
 import { renderProductividad } from './pages/productividad.js'
 import { renderUsuarios } from './pages/usuarios.js'
 
@@ -29,18 +30,19 @@ const ROLES_CLASS = {
 }
 
 const MODULES = [
-  { id: 'resumen',       label: 'Resumen diario', icon: 'ti-layout-dashboard', roles: ['jefe','logistica','operario','vendedor','observador'], section: 'General' },
-  { id: 'historial',     label: 'Historial',      icon: 'ti-history',          roles: ['jefe','logistica','vendedor','observador'],            section: 'General' },
-  { id: 'clientes',      label: 'Clientes',        icon: 'ti-building-store',   roles: ['jefe','logistica','vendedor','observador'],            section: 'Operaciones' },
-  { id: 'transportes',   label: 'Transportes',     icon: 'ti-truck',            roles: ['jefe','logistica','operario','observador'],            section: 'Operaciones' },
-  { id: 'picking',       label: 'Picking',         icon: 'ti-package',          roles: ['jefe','logistica','observador'],                       section: 'Operaciones' },
-  { id: 'despacho',      label: 'Despacho',        icon: 'ti-truck-delivery',   roles: ['jefe','logistica','operario','observador'],            section: 'Operaciones' },
-  { id: 'recorridos',    label: 'Recorridos',      icon: 'ti-route',            roles: ['jefe','logistica','operario','observador'],            section: 'Operaciones' },
-  { id: 'vehiculos',     label: 'Vehículos',       icon: 'ti-car',              roles: ['jefe','logistica','operario','vendedor','observador'], section: 'Operaciones' },
-  { id: 'recepcion',     label: 'Recepción',       icon: 'ti-forklift',         roles: ['jefe','logistica','operario','observador'],            section: 'Depósito' },
-  { id: 'stock',         label: 'Stock',           icon: 'ti-boxes',            roles: ['jefe','logistica','vendedor','observador'],            section: 'Depósito' },
-  { id: 'productividad', label: 'Productividad',   icon: 'ti-chart-bar',        roles: ['jefe','observador'],                                  section: 'Análisis' },
-  { id: 'usuarios',      label: 'Usuarios',        icon: 'ti-users',            roles: ['jefe'],                                               section: 'Administración' },
+  { id: 'resumen',        label: 'Resumen diario',  icon: 'ti-layout-dashboard', roles: ['jefe','logistica','operario','vendedor','observador'], section: 'General' },
+  { id: 'historial',      label: 'Historial',        icon: 'ti-history',          roles: ['jefe','logistica','vendedor','observador'],            section: 'General' },
+  { id: 'clientes',       label: 'Clientes',         icon: 'ti-building-store',   roles: ['jefe','logistica','vendedor','observador'],            section: 'Operaciones' },
+  { id: 'transportes',    label: 'Transportes',      icon: 'ti-truck',            roles: ['jefe','logistica','operario','observador'],            section: 'Operaciones' },
+  { id: 'picking',        label: 'Picking',          icon: 'ti-package',          roles: ['jefe','logistica','observador'],                       section: 'Operaciones' },
+  { id: 'despacho',       label: 'Despacho',         icon: 'ti-truck-delivery',   roles: ['jefe','logistica','operario','observador'],            section: 'Operaciones' },
+  { id: 'recorridos',     label: 'Recorridos',       icon: 'ti-route',            roles: ['jefe','logistica','operario','observador'],            section: 'Operaciones' },
+  { id: 'vehiculos',      label: 'Vehículos',        icon: 'ti-car',              roles: ['jefe','logistica','operario','vendedor','observador'], section: 'Operaciones' },
+  { id: 'recepcion',      label: 'Recepción',        icon: 'ti-forklift',         roles: ['jefe','logistica','operario','observador'],            section: 'Depósito' },
+  { id: 'stock',          label: 'Stock',            icon: 'ti-boxes',            roles: ['jefe','logistica','vendedor','observador'],            section: 'Depósito' },
+  { id: 'autoelevador',   label: 'Autoelevador',     icon: 'ti-forklift',         roles: ['jefe','logistica','observador'],                       section: 'Depósito' },
+  { id: 'productividad',  label: 'Productividad',    icon: 'ti-chart-bar',        roles: ['jefe','observador'],                                  section: 'Análisis' },
+  { id: 'usuarios',       label: 'Usuarios',         icon: 'ti-users',            roles: ['jefe'],                                               section: 'Administración' },
 ]
 
 let currentUser = null
@@ -90,6 +92,7 @@ function renderApp() {
           <div id="page-vehiculos" class="page"></div>
           <div id="page-recepcion" class="page"></div>
           <div id="page-stock" class="page"></div>
+          <div id="page-autoelevador" class="page"></div>
           <div id="page-productividad" class="page"></div>
           <div id="page-usuarios" class="page"></div>
           <div id="page-denied" class="page">
@@ -223,6 +226,7 @@ export function showPage(pageId) {
     case 'vehiculos':     renderVehiculos(pageEl, ctx); break
     case 'recepcion':     renderRecepcion(pageEl, ctx); break
     case 'stock':         renderStock(pageEl, ctx); break
+    case 'autoelevador':  renderAutoelevador(pageEl, ctx); break
     case 'productividad': renderProductividad(pageEl, ctx); break
     case 'usuarios':      renderUsuarios(pageEl, ctx); break
   }
