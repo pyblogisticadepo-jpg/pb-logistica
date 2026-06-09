@@ -50,8 +50,6 @@ export async function renderVehiculos(el, { supabase, currentUser, isObserver })
   async function loadFlota() {
     const { data } = await supabase.from('vehiculos').select('*').eq('activo', true)
     const flota = data || []
-
-    // Populate selects — solo vehículos NO en uso
     const disponibles = flota.filter(v => !v.en_uso)
     const sel = el.querySelector('#uso-veh')
     if (sel) {
@@ -59,9 +57,7 @@ export async function renderVehiculos(el, { supabase, currentUser, isObserver })
         ? '<option value="">— Sin vehículos disponibles —</option>'
         : disponibles.map(v => `<option value="${v.nombre}">${v.nombre}</option>`).join('')
     }
-
     el.querySelector('#hist-veh-filter').innerHTML = '<option value="">Todos los vehículos</option>' + flota.map(v => `<option>${v.nombre}</option>`).join('')
-
     const tab = el.querySelector('#tab-flota')
     tab.innerHTML = flota.map(v => `
       <div style="background:#111;border:1px solid ${v.en_uso ? '#1a3a52' : '#1e1e1e'};padding:16px 18px;margin-bottom:10px;border-radius:2px;display:flex;align-items:center;gap:16px;">
@@ -95,11 +91,8 @@ export async function renderVehiculos(el, { supabase, currentUser, isObserver })
   async function loadUsoPendiente() {
     const wrap = el.querySelector('#uso-pendiente-wrap')
     if (!wrap) return
-    // Buscar usos sin km de regreso del usuario actual
     const { data } = await supabase.from('vehiculos_uso').select('*')
-      .eq('usuario', currentUser.nombre)
-      .is('km_regreso', null)
-      .order('created_at', { ascending: false })
+      .eq('usuario', currentUser.nombre).is('km_regreso', null).order('created_at', { ascending: false })
     const pendientes = data || []
     if (pendientes.length === 0) { wrap.innerHTML = ''; return }
     wrap.innerHTML = pendientes.map(u => `
@@ -132,11 +125,9 @@ export async function renderVehiculos(el, { supabase, currentUser, isObserver })
       const kmSal = parseInt(el.querySelector('#uso-km-sal').value)
       const motivo = el.querySelector('#uso-motivo').value
       if (!veh || !kmSal) { alert('Completá vehículo y km de salida'); return }
-      // Registrar uso
       const { data: uso } = await supabase.from('vehiculos_uso').insert({
         vehiculo_nombre: veh, usuario: currentUser.nombre, motivo, km_salida: kmSal
       }).select().single()
-      // Marcar vehículo como en uso
       await supabase.from('vehiculos').update({ en_uso: true, uso_actual_id: uso?.id }).eq('nombre', veh)
       el.querySelector('#uso-km-sal').value = ''
       await loadFlota()
@@ -180,23 +171,29 @@ export async function renderVehiculos(el, { supabase, currentUser, isObserver })
 
 // RECEPCION
 export async function renderRecepcion(el, { supabase, currentUser, isObserver }) {
-  const today = new Date().toISOString().split('T')[0]
   const canEdit = ['jefe','logistica','operario'].includes(currentUser.rol)
+
   el.innerHTML = `
     <div class="page-header">
       <div class="page-title-group"><span class="page-title">Recepción</span><span class="page-subtitle" id="rec-count"></span></div>
       ${canEdit ? '<button class="btn-add" id="btn-new-rec"><i class="ti ti-plus"></i> Nueva recepción</button>' : ''}
     </div>
     ${isObserver ? '<div class="observer-badge"><i class="ti ti-eye"></i> Modo observador — solo lectura</div>' : ''}
-    <div class="date-picker-row">
-      <span class="date-picker-label">Fecha</span>
-      <input type="date" class="date-picker-input" id="rec-date" value="${today}">
+    <div class="search-bar">
+      <input class="search-input" id="rec-search" placeholder="Buscar por proveedor, transporte...">
+    </div>
+    <div class="date-picker-row" style="margin-bottom:16px;">
+      <span class="date-picker-label">Desde</span>
+      <input type="date" class="date-picker-input" id="rec-desde">
+      <span class="date-picker-label">Hasta</span>
+      <input type="date" class="date-picker-input" id="rec-hasta">
+      <button class="btn-sm" id="rec-limpiar"><i class="ti ti-x"></i> Limpiar</button>
     </div>
     <div id="rec-list"><div class="loading">Cargando...</div></div>
 
     <div class="modal-overlay" id="modal-rec">
       <div class="modal"><div class="modal-top-bar"></div>
-        <div class="modal-header"><span class="modal-title">Nueva recepción</span><button class="modal-close" id="close-rec"><i class="ti ti-x"></i></button></div>
+        <div class="modal-header"><span class="modal-title" id="modal-rec-title">Nueva recepción</span><button class="modal-close" id="close-rec"><i class="ti ti-x"></i></button></div>
         <div class="modal-body">
           <div class="form-row"><label class="form-label">Proveedor <span class="req">*</span></label><input class="form-input" id="r-prov" placeholder="Nombre del proveedor"></div>
           <div class="form-row-2">
@@ -212,39 +209,115 @@ export async function renderRecepcion(el, { supabase, currentUser, isObserver })
         </div>
         <div class="modal-footer"><button class="btn-cancel" id="cancel-rec">Cancelar</button><button class="btn-confirm" id="save-rec">Registrar</button></div>
       </div>
+    </div>
+
+    <div class="modal-overlay" id="modal-rec-detalle">
+      <div class="modal"><div class="modal-top-bar"></div>
+        <div class="modal-header">
+          <span class="modal-title" id="rec-detalle-title">Detalle recepción</span>
+          <button class="modal-close" id="close-rec-detalle"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body" id="rec-detalle-body"></div>
+        <div class="modal-footer"><button class="btn-cancel" id="cancel-rec-detalle">Cerrar</button></div>
+      </div>
     </div>`
 
   const modal = el.querySelector('#modal-rec')
+  const modalDetalle = el.querySelector('#modal-rec-detalle')
   el.querySelector('#close-rec').onclick = () => modal.classList.remove('open')
   el.querySelector('#cancel-rec').onclick = () => modal.classList.remove('open')
   modal.onclick = (e) => { if (e.target === modal) modal.classList.remove('open') }
+  el.querySelector('#close-rec-detalle').onclick = () => modalDetalle.classList.remove('open')
+  el.querySelector('#cancel-rec-detalle').onclick = () => modalDetalle.classList.remove('open')
+  modalDetalle.onclick = (e) => { if (e.target === modalDetalle) modalDetalle.classList.remove('open') }
 
   const { data: profiles } = await supabase.from('profiles').select('nombre').eq('activo', true).in('rol', ['jefe','logistica','operario'])
   el.querySelector('#r-controla').innerHTML = '<option value="">— seleccionar —</option>' + (profiles || []).map(p => `<option>${p.nombre}</option>`).join('')
 
+  let allRecepciones = []
+  const today = new Date().toISOString().split('T')[0]
+
+  // Setear fecha de hoy por defecto
+  el.querySelector('#rec-hasta').value = today
+  const monthStart = today.substring(0, 8) + '01'
+  el.querySelector('#rec-desde').value = monthStart
+
   async function load() {
-    const fecha = el.querySelector('#rec-date').value
-    const { data } = await supabase.from('recepciones').select('*').eq('fecha', fecha).order('created_at', { ascending: false })
-    const lista = data || []
-    el.querySelector('#rec-count').textContent = lista.length + ' recepciones'
-    const div = el.querySelector('#rec-list')
-    if (lista.length === 0) { div.innerHTML = '<div class="empty-state">Sin recepciones para esta fecha</div>'; return }
-    div.innerHTML = lista.map(r => `
-      <div style="background:#111;border:1px solid #1e1e1e;padding:14px 18px;margin-bottom:10px;border-radius:2px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-          <div style="font-size:14px;color:#ccc;font-weight:600">${r.proveedor}</div>
-          <span style="font-size:11px;color:#333;font-family:'DM Mono',monospace">${r.hora || ''}</span>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:12px;">
-          <div><div style="font-size:9px;letter-spacing:2px;color:#2a2a2a;text-transform:uppercase;margin-bottom:2px">Transporte</div><div style="color:#666">${r.transporte || '—'}</div></div>
-          <div><div style="font-size:9px;letter-spacing:2px;color:#2a2a2a;text-transform:uppercase;margin-bottom:2px">Bultos</div><div style="font-family:'DM Mono',monospace;color:#d4a830">${r.bultos}</div></div>
-          <div><div style="font-size:9px;letter-spacing:2px;color:#2a2a2a;text-transform:uppercase;margin-bottom:2px">Controló</div><div style="color:#666">${r.controla}</div></div>
-        </div>
-        ${r.observaciones ? `<div style="margin-top:10px;font-size:12px;color:#444;border-top:1px solid #1a1a1a;padding-top:8px">${r.observaciones}</div>` : ''}
-      </div>`).join('')
+    const { data } = await supabase.from('recepciones').select('*').order('fecha', { ascending: false }).order('hora', { ascending: false })
+    allRecepciones = data || []
+    filter()
   }
 
-  el.querySelector('#rec-date').onchange = load
+  function filter() {
+    const q = el.querySelector('#rec-search').value.toLowerCase()
+    const desde = el.querySelector('#rec-desde').value
+    const hasta = el.querySelector('#rec-hasta').value
+
+    const lista = allRecepciones.filter(r => {
+      const matchQ = !q ||
+        (r.proveedor || '').toLowerCase().includes(q) ||
+        (r.transporte || '').toLowerCase().includes(q) ||
+        (r.controla || '').toLowerCase().includes(q) ||
+        (r.observaciones || '').toLowerCase().includes(q)
+      const matchDesde = !desde ? true : r.fecha >= desde
+      const matchHasta = !hasta ? true : r.fecha <= hasta
+      return matchQ && matchDesde && matchHasta
+    })
+
+    renderTable(lista)
+  }
+
+  function renderTable(lista) {
+    el.querySelector('#rec-count').textContent = lista.length + ' registros'
+    const div = el.querySelector('#rec-list')
+    if (lista.length === 0) { div.innerHTML = '<div class="empty-state">Sin recepciones</div>'; return }
+    div.innerHTML = `<table class="data-table">
+      <thead><tr><th>Fecha</th><th>Proveedor</th><th>Transporte</th><th>Bultos</th><th>Controló</th><th>Hora</th><th></th></tr></thead>
+      <tbody>${lista.map(r => `
+        <tr>
+          <td style="font-family:'DM Mono',monospace;color:#888;font-size:11px">${r.fecha || '—'}</td>
+          <td style="color:#ccc;font-weight:500">${r.proveedor}</td>
+          <td style="color:#888">${r.transporte || '—'}</td>
+          <td style="font-family:'DM Mono',monospace;color:#d4a830">${r.bultos}</td>
+          <td style="color:#888;font-size:12px">${r.controla}</td>
+          <td style="font-family:'DM Mono',monospace;color:#555;font-size:11px">${r.hora || '—'}</td>
+          <td><button class="btn-sm primary" data-detalle='${JSON.stringify(r).replace(/'/g, "&#39;")}' ><i class="ti ti-eye"></i></button></td>
+        </tr>`).join('')}
+      </tbody></table>`
+
+    div.querySelectorAll('[data-detalle]').forEach(btn => {
+      btn.onclick = () => {
+        const r = JSON.parse(btn.dataset.detalle.replace(/&#39;/g, "'"))
+        mostrarDetalle(r)
+      }
+    })
+  }
+
+  function mostrarDetalle(r) {
+    el.querySelector('#rec-detalle-title').textContent = r.proveedor + ' — ' + r.fecha
+    el.querySelector('#rec-detalle-body').innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Proveedor</div><div style="color:#ccc;font-weight:500">${r.proveedor}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Fecha</div><div style="font-family:'DM Mono',monospace;color:#888">${r.fecha || '—'}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Transporte</div><div style="color:#aaa">${r.transporte || '—'}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Hora</div><div style="font-family:'DM Mono',monospace;color:#888">${r.hora || '—'}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Bultos</div><div style="font-family:'DM Mono',monospace;color:#d4a830;font-size:22px">${r.bultos}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Controló</div><div style="color:#ccc">${r.controla}</div></div>
+      </div>
+      ${r.observaciones ? `<div style="background:#1a1500;border:1px solid #2a2000;padding:10px 14px;border-radius:2px;font-size:12px;color:#d4a830"><i class="ti ti-note" style="font-size:11px"></i> ${r.observaciones}</div>` : ''}`
+    modalDetalle.classList.add('open')
+  }
+
+  el.querySelector('#rec-search').oninput = filter
+  el.querySelector('#rec-desde').onchange = filter
+  el.querySelector('#rec-hasta').onchange = filter
+  el.querySelector('#rec-limpiar').onclick = () => {
+    el.querySelector('#rec-search').value = ''
+    el.querySelector('#rec-desde').value = ''
+    el.querySelector('#rec-hasta').value = ''
+    filter()
+  }
+
   if (canEdit) {
     el.querySelector('#btn-new-rec').onclick = () => {
       ;['r-prov','r-trans','r-bultos','r-obs'].forEach(id => { el.querySelector('#'+id).value = '' })
@@ -266,6 +339,7 @@ export async function renderRecepcion(el, { supabase, currentUser, isObserver })
       await load()
     }
   }
+
   await load()
 }
 
