@@ -8,6 +8,7 @@ import { renderDespacho } from './pages/despacho.js'
 import { renderRecorridos } from './pages/recorridos.js'
 import { renderVehiculos } from './pages/vehiculos.js'
 import { renderRecepcion } from './pages/recepcion.js'
+import { renderStock } from './pages/stock.js'
 import { renderProductividad } from './pages/productividad.js'
 import { renderUsuarios } from './pages/usuarios.js'
 
@@ -37,6 +38,7 @@ const MODULES = [
   { id: 'recorridos',    label: 'Recorridos',      icon: 'ti-route',            roles: ['jefe','logistica','operario','observador'],            section: 'Operaciones' },
   { id: 'vehiculos',     label: 'Vehículos',       icon: 'ti-car',              roles: ['jefe','logistica','operario','vendedor','observador'], section: 'Operaciones' },
   { id: 'recepcion',     label: 'Recepción',       icon: 'ti-forklift',         roles: ['jefe','logistica','operario','observador'],            section: 'Depósito' },
+  { id: 'stock',         label: 'Stock',           icon: 'ti-boxes',            roles: ['jefe','logistica','vendedor','observador'],            section: 'Depósito' },
   { id: 'productividad', label: 'Productividad',   icon: 'ti-chart-bar',        roles: ['jefe','observador'],                                  section: 'Análisis' },
   { id: 'usuarios',      label: 'Usuarios',        icon: 'ti-users',            roles: ['jefe'],                                               section: 'Administración' },
 ]
@@ -87,6 +89,7 @@ function renderApp() {
           <div id="page-recorridos" class="page"></div>
           <div id="page-vehiculos" class="page"></div>
           <div id="page-recepcion" class="page"></div>
+          <div id="page-stock" class="page"></div>
           <div id="page-productividad" class="page"></div>
           <div id="page-usuarios" class="page"></div>
           <div id="page-denied" class="page">
@@ -219,6 +222,7 @@ export function showPage(pageId) {
     case 'recorridos':    renderRecorridos(pageEl, ctx); break
     case 'vehiculos':     renderVehiculos(pageEl, ctx); break
     case 'recepcion':     renderRecepcion(pageEl, ctx); break
+    case 'stock':         renderStock(pageEl, ctx); break
     case 'productividad': renderProductividad(pageEl, ctx); break
     case 'usuarios':      renderUsuarios(pageEl, ctx); break
   }
