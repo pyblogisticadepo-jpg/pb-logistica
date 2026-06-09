@@ -62,7 +62,8 @@ export async function renderStock(el, { supabase, currentUser }) {
           ${canEdit && fecha === today ? `<div style="margin-top:16px"><button class="btn-add" id="btn-cargar-stock-empty"><i class="ti ti-edit"></i> Cargar stock de hoy</button></div>` : ''}
         </div>`
       if (canEdit && fecha === today) {
-        el.querySelector('#btn-cargar-stock-empty')?.onclick = () => openModal()
+        const btnEmpty = el.querySelector('#btn-cargar-stock-empty')
+    if (btnEmpty) btnEmpty.onclick = () => openModal()
       }
       return
     }
