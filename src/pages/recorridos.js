@@ -203,6 +203,19 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
           <button class="btn-confirm" style="background:#e05555" id="save-no-entregado-rec"><i class="ti ti-arrow-back"></i> Registrar y devolver</button>
         </div>
       </div>
+    </div>
+
+    <div class="modal-overlay" id="modal-ficha-cliente">
+      <div class="modal"><div class="modal-top-bar" style="background:#a78bfa"></div>
+        <div class="modal-header">
+          <span class="modal-title" id="ficha-cliente-title">Ficha del cliente</span>
+          <button class="modal-close" id="close-ficha-cliente"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body" id="ficha-cliente-body"></div>
+        <div class="modal-footer">
+          <button class="btn-cancel" id="cancel-ficha-cliente">Cerrar</button>
+        </div>
+      </div>
     </div>`
 
   el.querySelectorAll('.tab-btn').forEach(btn => {
@@ -242,6 +255,11 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
     el.querySelector('#' + id).onclick = () => modalNoEntregado.classList.remove('open')
   })
   modalNoEntregado.onclick = (e) => { if (e.target === modalNoEntregado) modalNoEntregado.classList.remove('open') }
+
+  const modalFicha = el.querySelector('#modal-ficha-cliente')
+  el.querySelector('#close-ficha-cliente').onclick = () => modalFicha.classList.remove('open')
+  el.querySelector('#cancel-ficha-cliente').onclick = () => modalFicha.classList.remove('open')
+  modalFicha.onclick = (e) => { if (e.target === modalFicha) modalFicha.classList.remove('open') }
 
   el.querySelector('#salida-rec-vehiculo').onchange = () => {
     const esPersonal = el.querySelector('#salida-rec-vehiculo').value === 'vehiculo-personal'
@@ -309,7 +327,49 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
     await load()
   }
 
+  async function mostrarFichaCliente(clienteNombre, clienteId) {
+    el.querySelector('#ficha-cliente-title').textContent = clienteNombre
+    el.querySelector('#ficha-cliente-body').innerHTML = '<div class="loading">Cargando...</div>'
+    modalFicha.classList.add('open')
+
+    let cliente = null
+    if (clienteId) {
+      const { data } = await supabase.from('clientes').select('*').eq('id', clienteId).single()
+      cliente = data
+    } else {
+      const { data } = await supabase.from('clientes').select('*').ilike('nombre', clienteNombre).limit(1).single()
+      cliente = data
+    }
+
+    if (!cliente) {
+      el.querySelector('#ficha-cliente-body').innerHTML = '<div class="empty-state">Sin datos del cliente</div>'
+      return
+    }
+
+    el.querySelector('#ficha-cliente-body').innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+        <div style="grid-column:span 2"><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Cliente</div><div style="color:#ccc;font-weight:600;font-size:15px">${cliente.nombre}</div></div>
+        ${cliente.direccion ? `<div style="grid-column:span 2"><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Dirección</div><div style="color:#aaa">${cliente.direccion}</div></div>` : ''}
+        ${cliente.horario ? `<div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Horario</div><div style="color:#52c452;font-size:13px">${cliente.horario}</div></div>` : ''}
+        ${cliente.telefono ? `<div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Teléfono</div><div style="color:#5aadee;font-size:13px">${cliente.telefono}</div></div>` : ''}
+        ${cliente.cuit ? `<div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">CUIT</div><div style="font-family:'DM Mono',monospace;color:#888">${cliente.cuit}</div></div>` : ''}
+        ${cliente.nro_manager ? `<div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Nº Manager</div><div style="font-family:'DM Mono',monospace;color:#5aadee">${cliente.nro_manager}</div></div>` : ''}
+      </div>
+      ${cliente.aclaraciones ? `
+        <div style="background:#1a1500;border:1px solid #2a2000;padding:14px 16px;border-radius:2px;">
+          <div style="font-size:9px;letter-spacing:2px;color:#d4a830;text-transform:uppercase;margin-bottom:8px;font-weight:500"><i class="ti ti-alert-circle" style="font-size:11px"></i> Aclaraciones de entrega</div>
+          <div style="font-size:13px;color:#d4a830;line-height:1.6">${cliente.aclaraciones}</div>
+        </div>` : `
+        <div style="font-size:12px;color:#444;text-align:center;padding:16px">Sin aclaraciones de entrega</div>`}`
+  }
+
   el.querySelector('#rec-list').addEventListener('click', async (e) => {
+    const btnFicha = e.target.closest('button[data-ficha-cliente]')
+    if (btnFicha) {
+      await mostrarFichaCliente(btnFicha.dataset.fichaCliente, btnFicha.dataset.clienteId || null)
+      return
+    }
+
     const btn = e.target.closest('button[data-salida], button[data-regreso], button[data-entregar], button[data-no-entregar]')
     if (!btn) return
 
@@ -372,6 +432,14 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
     const list = el.querySelector('#rec-list')
     if (currentRecorridos.length === 0) { list.innerHTML = '<div class="empty-state">Sin recorridos</div>'; return }
 
+    // Cargar cliente_id de los pickings para la ficha
+    const codigosInternos = [...new Set(currentRecorridos.flatMap(r => r.recorrido_pedidos.map(p => p.codigo_interno).filter(Boolean)))]
+    let pickingClienteMap = {}
+    if (codigosInternos.length > 0) {
+      const { data: pks } = await supabase.from('picking').select('codigo_interno, cliente_id').in('codigo_interno', codigosInternos)
+      ;(pks || []).forEach(p => { if (p.codigo_interno) pickingClienteMap[p.codigo_interno] = p.cliente_id })
+    }
+
     list.innerHTML = currentRecorridos.map(r => {
       const ent = r.recorrido_pedidos.filter(p => p.estado === 'entregado').length
       const tot = r.recorrido_pedidos.length
@@ -401,12 +469,17 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
             <span>Confirmá la salida antes de registrar entregas</span>
           </div>` : ''}
         ${tot === 0 ? '<div style="color:#444;font-size:12px;padding:8px 0">Sin pedidos en este recorrido</div>' :
-        r.recorrido_pedidos.map(p => `
+        r.recorrido_pedidos.map(p => {
+          const clienteId = pickingClienteMap[p.codigo_interno] || null
+          return `
           <div class="pedido-card ${p.estado === 'entregado' ? 'entregado' : p.observaciones ? 'rechazado' : ''}">
             <div class="pedido-card-header">
               <div class="pedido-orden ${p.tipo || 'pyb'}">${p.orden}</div>
               <div style="flex:1">
-                <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:2px">${p.cliente_nombre}</div>
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+                  <div style="font-size:13px;font-weight:600;color:#fff">${p.cliente_nombre}</div>
+                  <button class="btn-sm" style="border-color:#2d1a52;color:#a78bfa;padding:3px 8px;font-size:10px" data-ficha-cliente="${p.cliente_nombre}" data-cliente-id="${clienteId || ''}"><i class="ti ti-info-circle" style="font-size:11px"></i> Ficha</button>
+                </div>
                 <div style="font-size:11px;color:#555">
                   ${p.codigo_interno ? `<span style="font-family:'DM Mono',monospace;color:#5aadee;font-size:10px">${p.codigo_interno}</span> · ` : ''}
                   <i class="ti ti-map-pin" style="font-size:10px"></i> ${p.direccion || '—'} · ${p.nota_pedido}${p.tipo === 'externo' ? ' · ' + (p.transporte_nombre || '') : ''}
@@ -424,7 +497,8 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
               </div>
             </div>
             ${p.estado === 'entregado' ? `<div class="pedido-entregado-info"><span style="color:#52c452;font-family:'DM Mono',monospace;font-size:11px"><i class="ti ti-clock" style="font-size:10px"></i> Entregado ${p.hora_entrega || ''}</span></div>` : ''}
-          </div>`).join('')}
+          </div>`
+        }).join('')}
       </div>`
     }).join('')
   }
