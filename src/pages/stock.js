@@ -11,7 +11,7 @@ export async function renderStock(el, { supabase, currentUser }) {
   el.innerHTML = `
     <div class="page-header">
       <div class="page-title-group"><span class="page-title">Stock</span><span class="page-subtitle" id="stock-sub"></span></div>
-      ${canEdit ? '<button class="btn-add" id="btn-cargar-stock"><i class="ti ti-edit"></i> Cargar stock del día</button>' : ''}
+      ${canEdit ? '<button class="btn-add" id="btn-cargar-stock"><i class="ti ti-edit"></i> Actualizar stock</button>' : ''}
     </div>
     ${!canEdit ? '<div class="observer-badge"><i class="ti ti-eye"></i> Solo lectura</div>' : ''}
     <div class="date-picker-row" style="margin-bottom:16px;">
@@ -23,7 +23,7 @@ export async function renderStock(el, { supabase, currentUser }) {
     <div class="modal-overlay" id="modal-stock">
       <div class="modal" style="width:600px;max-width:96%"><div class="modal-top-bar green"></div>
         <div class="modal-header">
-          <span class="modal-title">Cargar stock — ${today}</span>
+          <span class="modal-title" id="stock-modal-title">Actualizar stock</span>
           <button class="modal-close" id="close-stock-modal"><i class="ti ti-x"></i></button>
         </div>
         <div class="modal-body" id="stock-form-body"></div>
@@ -41,73 +41,103 @@ export async function renderStock(el, { supabase, currentUser }) {
 
   el.querySelector('#stock-fecha').onchange = () => load(el.querySelector('#stock-fecha').value)
 
+  async function getUltimoStock(fechaHasta) {
+    // Para cada producto busca el último registro hasta la fecha indicada
+    const { data } = await supabase
+      .from('stock').select('*')
+      .lte('fecha', fechaHasta)
+      .order('fecha', { ascending: false })
+      .order('created_at', { ascending: false })
+
+    const stockMap = {}
+    // Para cada producto quedar con el registro más reciente
+    ;(data || []).forEach(s => {
+      const key = `${s.marca}|${s.producto}`
+      if (!stockMap[key]) stockMap[key] = s
+    })
+    return stockMap
+  }
+
   async function load(fecha) {
     el.querySelector('#stock-sub').textContent = fecha === today ? 'Hoy' : fecha
     const content = el.querySelector('#stock-content')
     content.innerHTML = '<div class="loading">Cargando...</div>'
 
-    const { data: stockData } = await supabase
-      .from('stock').select('*').eq('fecha', fecha).order('marca').order('producto')
-
-    const stockMap = {}
-    ;(stockData || []).forEach(s => { stockMap[`${s.marca}|${s.producto}`] = s.cantidad })
-
-    const hayDatos = (stockData || []).length > 0
+    const stockMap = await getUltimoStock(fecha)
+    const hayDatos = Object.keys(stockMap).length > 0
 
     if (!hayDatos) {
       content.innerHTML = `
         <div style="text-align:center;padding:60px;color:#444">
           <i class="ti ti-package" style="font-size:40px;display:block;margin-bottom:12px;color:#333"></i>
-          Sin stock cargado para esta fecha
-          ${canEdit && fecha === today ? `<div style="margin-top:16px"><button class="btn-add" id="btn-cargar-stock-empty"><i class="ti ti-edit"></i> Cargar stock de hoy</button></div>` : ''}
+          Sin stock cargado aún
+          ${canEdit ? `<div style="margin-top:16px"><button class="btn-add" id="btn-cargar-stock-empty"><i class="ti ti-edit"></i> Cargar stock</button></div>` : ''}
         </div>`
-      if (canEdit && fecha === today) {
+      if (canEdit) {
         const btnEmpty = el.querySelector('#btn-cargar-stock-empty')
-    if (btnEmpty) btnEmpty.onclick = () => openModal()
+        if (btnEmpty) btnEmpty.onclick = () => openModal()
       }
       return
     }
 
+    // Mostrar fecha del último registro
+    const fechas = [...new Set(Object.values(stockMap).map(s => s.fecha))].sort().reverse()
+    const ultimaFecha = fechas[0]
+    const esHoy = ultimaFecha === fecha
+
     let html = ''
+    if (!esHoy && fecha === today) {
+      html += `<div style="background:#1a1500;border:1px solid #2a2000;padding:10px 14px;border-radius:2px;font-size:12px;color:#d4a830;margin-bottom:16px;display:flex;align-items:center;gap:8px;">
+        <i class="ti ti-alert-circle"></i>
+        <span>Mostrando último stock registrado (${ultimaFecha}). Actualizá para cargar el de hoy.</span>
+      </div>`
+    }
+
     Object.entries(PRODUCTOS).forEach(([marca, productos]) => {
-      const tieneData = productos.some(p => stockMap[`${marca}|${p}`] !== undefined)
-      if (!tieneData) return
       html += `<div style="margin-bottom:24px;">
         <div style="font-size:10px;letter-spacing:3px;color:#555;text-transform:uppercase;margin-bottom:12px;font-weight:500;border-bottom:1px solid #1e1e1e;padding-bottom:8px">${marca}</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;">
           ${productos.map(p => {
-            const cant = stockMap[`${marca}|${p}`]
-            if (cant === undefined) return ''
-            const color = cant === 0 ? '#e05555' : cant <= 10 ? '#d4a830' : '#52c452'
+            const s = stockMap[`${marca}|${p}`]
+            const cant = s?.cantidad
+            const color = cant === undefined ? '#444' : cant === 0 ? '#e05555' : cant <= 10 ? '#d4a830' : '#52c452'
             return `<div style="background:#111;border:1px solid #1e1e1e;padding:14px 16px;border-radius:2px;">
               <div style="font-size:11px;color:#666;margin-bottom:6px">${p}</div>
-              <div style="font-family:'DM Mono',monospace;font-size:24px;font-weight:600;color:${color}">${cant}</div>
+              <div style="font-family:'DM Mono',monospace;font-size:24px;font-weight:600;color:${color}">${cant !== undefined ? cant : '—'}</div>
+              ${s && s.fecha !== today ? `<div style="font-size:9px;color:#333;margin-top:4px">${s.fecha}</div>` : ''}
             </div>`
           }).join('')}
         </div>
       </div>`
     })
 
-    content.innerHTML = html || '<div class="empty-state">Sin datos</div>'
+    content.innerHTML = html
   }
 
   async function openModal() {
-    const { data: stockHoy } = await supabase
-      .from('stock').select('*').eq('fecha', today)
-    const stockMap = {}
-    ;(stockHoy || []).forEach(s => { stockMap[`${s.marca}|${s.producto}`] = s.cantidad })
+    el.querySelector('#stock-modal-title').textContent = 'Actualizar stock — ' + today
+    // Pre-cargar con último stock conocido
+    const stockPrevio = await getUltimoStock(today)
 
-    let formHtml = ''
+    let formHtml = `
+      <div style="background:#0d1a0d;border:1px solid #1a3a1a;padding:10px 14px;border-radius:2px;font-size:12px;color:#3a6a3a;margin-bottom:16px;display:flex;gap:8px;">
+        <i class="ti ti-info-circle" style="color:#52c452;flex-shrink:0"></i>
+        <span>Los valores están pre-cargados con el último stock registrado. Modificá solo los que cambiaron.</span>
+      </div>`
+
     Object.entries(PRODUCTOS).forEach(([marca, productos]) => {
       formHtml += `
         <div style="margin-bottom:20px;">
           <div style="font-size:10px;letter-spacing:3px;color:#555;text-transform:uppercase;margin-bottom:10px;font-weight:500;border-bottom:1px solid #1e1e1e;padding-bottom:8px">${marca}</div>
           <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;">
-            ${productos.map(p => `
-              <div>
+            ${productos.map(p => {
+              const previo = stockPrevio[`${marca}|${p}`]
+              const val = previo?.cantidad !== undefined ? previo.cantidad : ''
+              return `<div>
                 <label style="font-size:11px;color:#666;display:block;margin-bottom:4px">${p}</label>
-                <input class="form-input stock-input" data-marca="${marca}" data-producto="${p}" type="number" min="0" value="${stockMap[`${marca}|${p}`] ?? ''}" placeholder="0" style="padding:8px 10px;font-size:14px;">
-              </div>`).join('')}
+                <input class="form-input stock-input" data-marca="${marca}" data-producto="${p}" type="number" min="0" value="${val}" placeholder="0" style="padding:8px 10px;font-size:14px;">
+              </div>`
+            }).join('')}
           </div>
         </div>`
     })
@@ -136,7 +166,7 @@ export async function renderStock(el, { supabase, currentUser }) {
 
       if (registros.length === 0) { alert('Ingresá al menos un valor'); return }
 
-      // Borrar los del día y reemplazar
+      // Borrar solo los del día actual y reemplazar
       await supabase.from('stock').delete().eq('fecha', today)
       const { error } = await supabase.from('stock').insert(registros)
       if (error) { alert('Error: ' + error.message); return }
