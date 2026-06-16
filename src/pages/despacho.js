@@ -300,6 +300,13 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       .order('created_at', { ascending: false })
     currentRecorridos = recData || []
 
+    // Pedidos sin documentos (preparacion o armado)
+    const { data: sinDocs } = await supabase
+      .from('picking')
+      .select('id, nota_pedido, codigo_interno, cliente_nombre, estado, lineas')
+      .in('estado', ['preparacion', 'armado'])
+      .order('hora_registro', { ascending: false })
+
     const { data: allPicking } = await supabase
       .from('picking').select('id, nota_pedido, codigo_interno, cliente_nombre, cliente_id, documentacion')
       .eq('estado', 'habilitado')
@@ -355,8 +362,31 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
 
     let html = ''
 
+    // SECCION SIN DOCUMENTOS
+    if (sinDocs && sinDocs.length > 0) {
+      html += `<div class="section-label" style="margin-top:0">Sin documentos</div>`
+      html += sinDocs.map(p => {
+        const estadoLabel = p.estado === 'preparacion'
+          ? '<span class="badge badge-preparacion">En preparación</span>'
+          : '<span class="badge badge-armado">Armado</span>'
+        const faltaLabel = p.estado === 'preparacion'
+          ? 'Falta completar armado y documentos'
+          : 'Falta documentación para habilitar'
+        return `<div style="background:#111;border:1px solid #1a1a1a;padding:12px 16px;margin-bottom:8px;border-radius:2px;display:flex;align-items:center;gap:12px;">
+          <div style="flex:1">
+            <div style="font-size:13px;color:#ccc;font-weight:500">${p.cliente_nombre} ${estadoLabel}</div>
+            <div style="font-size:11px;color:#555;margin-top:2px">
+              ${p.codigo_interno ? `<span style="font-family:'DM Mono',monospace;color:#5aadee">${p.codigo_interno}</span> · ` : ''}
+              ${p.nota_pedido} · ${p.lineas} líneas
+            </div>
+          </div>
+          <span style="font-size:10px;color:#555;text-align:right;line-height:1.5">${faltaLabel}</span>
+        </div>`
+      }).join('')
+    }
+
     if (entregasPendientes.length > 0) {
-      html += `<div class="section-label" style="margin-top:0">Entregas pendientes de recorrido</div>`
+      html += `<div class="section-label" style="margin-top:${sinDocs?.length > 0 ? '24px' : '0'}">Entregas pendientes de recorrido</div>`
       html += entregasPendientes.map(p => `
         <div style="background:#111;border:1px solid ${p._border};padding:14px 16px;margin-bottom:8px;border-radius:2px;display:flex;align-items:center;gap:12px;">
           <div style="flex:1">
@@ -371,7 +401,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     }
 
     if (retirosPendientes.length > 0) {
-      html += `<div class="section-label" style="margin-top:${entregasPendientes.length > 0 ? '24px' : '0'}">Retiros pendientes</div>`
+      html += `<div class="section-label" style="margin-top:${entregasPendientes.length > 0 || sinDocs?.length > 0 ? '24px' : '0'}">Retiros pendientes</div>`
       html += retirosPendientes.map(p => `
         <div style="background:#111;border:1px solid ${p._border};padding:14px 16px;margin-bottom:8px;border-radius:2px;display:flex;align-items:center;gap:12px;">
           <div style="flex:1">
@@ -386,7 +416,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     }
 
     if (despachadosRetiro.length > 0) {
-      html += `<div class="section-label" style="margin-top:${retirosPendientes.length > 0 || entregasPendientes.length > 0 ? '24px' : '0'}">Retirados hoy</div>`
+      html += `<div class="section-label" style="margin-top:${retirosPendientes.length > 0 || entregasPendientes.length > 0 || sinDocs?.length > 0 ? '24px' : '0'}">Retirados hoy</div>`
       html += despachadosRetiro.map(r => `
         <div style="background:#0d1e0d;border:1px solid #1a361a;padding:12px 16px;margin-bottom:8px;border-radius:2px;display:flex;align-items:center;gap:12px;opacity:.8">
           <div style="flex:1">
@@ -398,7 +428,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     }
 
     if (currentRecorridos.length > 0) {
-      const hasAbove = entregasPendientes.length > 0 || retirosPendientes.length > 0 || despachadosRetiro.length > 0
+      const hasAbove = sinDocs?.length > 0 || entregasPendientes.length > 0 || retirosPendientes.length > 0 || despachadosRetiro.length > 0
       html += `<div class="section-label" style="margin-top:${hasAbove ? '24px' : '0'}">Recorridos de hoy</div>`
       html += currentRecorridos.map(r => {
         const ent = r.recorrido_pedidos.filter(p => p.estado === 'entregado').length
@@ -445,7 +475,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       }).join('')
     }
 
-    if (currentRecorridos.length === 0 && retirosPendientes.length === 0 && entregasPendientes.length === 0 && despachadosRetiro.length === 0) {
+    if (currentRecorridos.length === 0 && retirosPendientes.length === 0 && entregasPendientes.length === 0 && despachadosRetiro.length === 0 && (!sinDocs || sinDocs.length === 0)) {
       html = '<div class="empty-state" style="padding:60px">Sin actividad de despacho hoy</div>'
     }
 
