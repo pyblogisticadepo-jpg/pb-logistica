@@ -432,7 +432,6 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
     const list = el.querySelector('#rec-list')
     if (currentRecorridos.length === 0) { list.innerHTML = '<div class="empty-state">Sin recorridos</div>'; return }
 
-    // Cargar cliente_id de los pickings para la ficha
     const codigosInternos = [...new Set(currentRecorridos.flatMap(r => r.recorrido_pedidos.map(p => p.codigo_interno).filter(Boolean)))]
     let pickingClienteMap = {}
     if (codigosInternos.length > 0) {
@@ -573,16 +572,20 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
 
       const { data: recorridosActivos } = await supabase.from('recorridos').select('id').neq('estado', 'completado')
       const idsActivos = (recorridosActivos || []).map(r => r.id)
-      const { data: enRuta } = idsActivos.length > 0
-      ? await supabase.from('recorrido_pedidos').select('codigo_interno, nota_pedido').in('recorrido_id', idsActivos)
-      : { data: [] }
-      const codigosEnRuta = new Set((enRuta || []).map(p => p.codigo_interno).filter(Boolean))
-      const notasEnRuta = new Set((enRuta || []).map(p => p.nota_pedido).filter(Boolean))
+      const { data: enRutaActiva } = idsActivos.length > 0
+        ? await supabase.from('recorrido_pedidos').select('codigo_interno, nota_pedido').in('recorrido_id', idsActivos)
+        : { data: [] }
+      const codigosEnRutaActiva = new Set((enRutaActiva || []).map(p => p.codigo_interno).filter(Boolean))
+      const notasEnRutaActiva = new Set((enRutaActiva || []).map(p => p.nota_pedido).filter(Boolean))
+
+      const { data: yaEntregados } = await supabase.from('recorrido_pedidos').select('codigo_interno, nota_pedido').eq('estado', 'entregado')
+      const codigosYaEntregados = new Set((yaEntregados || []).map(p => p.codigo_interno).filter(Boolean))
+      const notasYaEntregadas = new Set((yaEntregados || []).map(p => p.nota_pedido).filter(Boolean))
 
       const { data: pk } = await supabase.from('picking').select('id, nota_pedido, cliente_nombre, cliente_id, codigo_interno').eq('estado', 'habilitado')
       const disponiblesPk = (pk || []).filter(p => {
-        if (p.codigo_interno) return !codigosEnRuta.has(p.codigo_interno)
-        return !notasEnRuta.has(p.nota_pedido)
+        if (p.codigo_interno) return !codigosEnRutaActiva.has(p.codigo_interno) && !codigosYaEntregados.has(p.codigo_interno)
+        return !notasEnRutaActiva.has(p.nota_pedido) && !notasYaEntregadas.has(p.nota_pedido)
       })
 
       if (disponiblesPk.length === 0) {
