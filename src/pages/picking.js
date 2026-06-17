@@ -43,7 +43,7 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
             <div id="s1-cliente-dropdown" style="display:none;background:#141414;border:1px solid #222;border-top:none;max-height:200px;overflow-y:auto;border-radius:0 0 2px 2px;"></div>
             <input type="hidden" id="s1-cliente-id">
             <input type="hidden" id="s1-cliente-nombre">
-            <div class="form-hint">Buscá un cliente existente o escribí uno nuevo</div>
+            <div class="form-hint" id="s1-cliente-hint">Buscá un cliente existente o escribí uno nuevo</div>
           </div>
           <div class="form-row">
             <label class="form-label">Bultos <span style="color:#555;font-size:10px;letter-spacing:1px">(opcional)</span></label>
@@ -51,6 +51,22 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
           </div>
         </div>
         <div class="modal-footer"><button class="btn-cancel" id="cancel-pk1">Cancelar</button><button class="btn-confirm" id="save-pk1">Registrar — En preparación</button></div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="modal-pk-cliente-nuevo">
+      <div class="modal" style="width:440px"><div class="modal-top-bar" style="background:#a78bfa"></div>
+        <div class="modal-header"><span class="modal-title">Cliente nuevo</span><button class="modal-close" id="close-pk-cliente-nuevo"><i class="ti ti-x"></i></button></div>
+        <div class="modal-body">
+          <div style="background:#1a1030;border:1px solid #2d1a52;padding:14px 16px;border-radius:2px;font-size:13px;color:#c4b5fd;display:flex;gap:10px;">
+            <i class="ti ti-user-plus" style="flex-shrink:0;margin-top:1px"></i>
+            <span><strong id="pk-cliente-nuevo-nombre"></strong> no existe en la base de clientes. ¿Confirmás crearlo y continuar con el picking?</span>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-cancel" id="cancel-pk-cliente-nuevo">Volver</button>
+          <button class="btn-confirm" style="background:#a78bfa;color:#1a1030" id="confirm-pk-cliente-nuevo"><i class="ti ti-check"></i> Crear cliente y continuar</button>
+        </div>
       </div>
     </div>
 
@@ -175,6 +191,7 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
   let clientes = []
   let profiles = []
   let clienteSeleccionado = null
+  let datosPendientesPk1 = null
 
   const DOC_LABEL = { fac_remito: 'Fac. y Remito', fac_etiqueta: 'Fac. y Etiqueta', remito: 'Remito solo' }
   const ESTADO_HTML = {
@@ -192,6 +209,7 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
   }
 
   const m1 = setupModal('modal-pk1', ['close-pk1','cancel-pk1'])
+  const mClienteNuevo = setupModal('modal-pk-cliente-nuevo', ['close-pk-cliente-nuevo','cancel-pk-cliente-nuevo'])
   const m2 = setupModal('modal-pk2', ['close-pk2','cancel-pk2'])
   const m3 = setupModal('modal-pk3', ['close-pk3','cancel-pk3'])
   const mDetalle = setupModal('modal-pk-detalle', ['close-pk-detalle','cancel-pk-detalle'])
@@ -459,7 +477,6 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     el.querySelector('#pk3-title').textContent = 'Confirmar doc. — ' + (p.codigo_interno || p.nota_pedido)
     el.querySelector('#s3-doc').value = ''
     el.querySelector('#s3-warn').style.display = 'none'
-    // Pre-cargar bultos si ya fueron cargados en apertura
     if (p.bultos) {
       el.querySelector('#s3-bultos').value = p.bultos
       el.querySelector('#s3-bultos-hint').style.display = 'block'
@@ -484,21 +501,9 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     }
   }
 
-  el.querySelector('#save-pk1').onclick = async () => {
-    const nota = el.querySelector('#s1-nota').value.trim()
-    const lineas = parseInt(el.querySelector('#s1-lineas').value)
-    const clienteNombre = el.querySelector('#s1-cliente-nombre').value.trim() || searchInput.value.trim()
-    const clienteIdExistente = el.querySelector('#s1-cliente-id').value
-    const bultosApertura = parseInt(el.querySelector('#s1-bultos').value) || null
-    if (!nota || !clienteNombre || !lineas) { alert('Completá todos los campos'); return }
-    let clienteId = clienteIdExistente || null
-    if (!clienteId) {
-      const { data } = await supabase.from('clientes').insert({ nombre: clienteNombre }).select().single()
-      clienteId = data?.id
-      clientes.push({ id: clienteId, nombre: clienteNombre, direccion: null })
-    }
+  async function guardarPicking(clienteId, clienteNombre, nota, lineas, bultosApertura) {
     const codigoInterno = await generarCodigoInterno()
-    await supabase.from('picking').insert({
+    const { error } = await supabase.from('picking').insert({
       nota_pedido: '#' + nota,
       codigo_interno: codigoInterno,
       cliente_id: clienteId,
@@ -507,6 +512,55 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
       bultos: bultosApertura,
       estado: 'preparacion'
     })
+    if (error) { alert('Error al guardar el picking: ' + error.message); return false }
+    return true
+  }
+
+  el.querySelector('#save-pk1').onclick = async () => {
+    const nota = el.querySelector('#s1-nota').value.trim()
+    const lineas = parseInt(el.querySelector('#s1-lineas').value)
+    const clienteNombre = el.querySelector('#s1-cliente-nombre').value.trim() || searchInput.value.trim()
+    const clienteIdExistente = el.querySelector('#s1-cliente-id').value
+    const bultosApertura = parseInt(el.querySelector('#s1-bultos').value) || null
+    if (!nota || !clienteNombre || !lineas) { alert('Completá todos los campos'); return }
+
+    if (clienteIdExistente) {
+      const ok = await guardarPicking(clienteIdExistente, clienteNombre, nota, lineas, bultosApertura)
+      if (!ok) return
+      m1.classList.remove('open')
+      await load()
+      return
+    }
+
+    // Cliente nuevo: pedir confirmación antes de crear
+    datosPendientesPk1 = { clienteNombre, nota, lineas, bultosApertura }
+    el.querySelector('#pk-cliente-nuevo-nombre').textContent = clienteNombre
+    mClienteNuevo.classList.add('open')
+  }
+
+  el.querySelector('#confirm-pk-cliente-nuevo').onclick = async () => {
+    if (!datosPendientesPk1) return
+    const { clienteNombre, nota, lineas, bultosApertura } = datosPendientesPk1
+    const btn = el.querySelector('#confirm-pk-cliente-nuevo')
+    btn.innerHTML = 'Creando...'
+    btn.disabled = true
+
+    const { data, error } = await supabase.from('clientes').insert({ nombre: clienteNombre }).select().single()
+    if (error || !data?.id) {
+      alert('No se pudo crear el cliente (revisá la conexión). El picking no se guardó, intentá de nuevo.')
+      btn.innerHTML = '<i class="ti ti-check"></i> Crear cliente y continuar'
+      btn.disabled = false
+      return
+    }
+    clientes.push({ id: data.id, nombre: clienteNombre, direccion: null })
+
+    const ok = await guardarPicking(data.id, clienteNombre, nota, lineas, bultosApertura)
+    btn.innerHTML = '<i class="ti ti-check"></i> Crear cliente y continuar'
+    btn.disabled = false
+    if (!ok) return
+
+    datosPendientesPk1 = null
+    mClienteNuevo.classList.remove('open')
     m1.classList.remove('open')
     await load()
   }
