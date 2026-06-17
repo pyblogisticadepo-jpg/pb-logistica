@@ -571,7 +571,11 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
       optimizarBtn.disabled = false
       optimizarBtn.dataset.step = ''
 
-      const { data: enRuta } = await supabase.from('recorrido_pedidos').select('codigo_interno, nota_pedido')
+      const { data: recorridosActivos } = await supabase.from('recorridos').select('id').neq('estado', 'completado')
+      const idsActivos = (recorridosActivos || []).map(r => r.id)
+      const { data: enRuta } = idsActivos.length > 0
+      ? await supabase.from('recorrido_pedidos').select('codigo_interno, nota_pedido').in('recorrido_id', idsActivos)
+      : { data: [] }
       const codigosEnRuta = new Set((enRuta || []).map(p => p.codigo_interno).filter(Boolean))
       const notasEnRuta = new Set((enRuta || []).map(p => p.nota_pedido).filter(Boolean))
 
