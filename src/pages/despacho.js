@@ -1,9 +1,9 @@
 async function subirFotoRemito(supabase, file, codigoRef) {
   const ext = file.name.split('.').pop() || 'jpg'
   const nombreArchivo = `${codigoRef}_${Date.now()}.${ext}`
-  const { error } = await supabase.storage.from('remitos').upload(nombreArchivo, file)
+  const { error } = await supabase.storage.from('Remitos').upload(nombreArchivo, file)
   if (error) return null
-  const { data } = supabase.storage.from('remitos').getPublicUrl(nombreArchivo)
+  const { data } = supabase.storage.from('Remitos').getPublicUrl(nombreArchivo)
   return data?.publicUrl || null
 }
 
