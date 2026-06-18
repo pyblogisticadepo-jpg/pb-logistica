@@ -60,6 +60,15 @@ async function loadLeaflet() {
   })
 }
 
+async function subirFotoRemito(supabase, file, codigoOref) {
+  const ext = file.name.split('.').pop() || 'jpg'
+  const nombreArchivo = `${codigoOref}_${Date.now()}.${ext}`
+  const { error } = await supabase.storage.from('remitos').upload(nombreArchivo, file)
+  if (error) return null
+  const { data } = supabase.storage.from('remitos').getPublicUrl(nombreArchivo)
+  return data?.publicUrl || null
+}
+
 export async function renderRecorridos(el, { supabase, currentUser, isObserver }) {
   const canEdit = ['jefe','logistica'].includes(currentUser.rol)
   const isOperario = currentUser.rol === 'operario'
@@ -159,6 +168,7 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
         </div>
         <div class="modal-body">
           <div id="regreso-rec-resumen" style="background:#111;border:1px solid #1e1e1e;padding:14px 16px;border-radius:2px;margin-bottom:20px;font-size:13px;color:#666;line-height:1.8;"></div>
+          <div id="regreso-rec-faltan-fotos" style="display:none;background:#1f0d0d;border:1px solid #3a1a1a;padding:12px 16px;border-radius:2px;font-size:12px;color:#e05555;margin-bottom:16px;"></div>
           <div class="form-row" id="regreso-rec-km-wrap">
             <label class="form-label">Km de regreso <span class="req">*</span></label>
             <input class="form-input" id="regreso-rec-km" type="number" placeholder="Ej: 45951">
@@ -216,6 +226,23 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
           <button class="btn-cancel" id="cancel-ficha-cliente">Cerrar</button>
         </div>
       </div>
+    </div>
+
+    <div class="modal-overlay" id="modal-fotos-remito">
+      <div class="modal"><div class="modal-top-bar" style="background:#5aadee"></div>
+        <div class="modal-header">
+          <span class="modal-title" id="fotos-remito-title">Fotos del remito</span>
+          <button class="modal-close" id="close-fotos-remito"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <input type="file" accept="image/*" capture="environment" id="fotos-remito-input" style="display:none">
+          <button class="btn-confirm" style="width:100%;margin-bottom:14px" id="fotos-remito-tomar"><i class="ti ti-camera"></i> Tomar / subir foto</button>
+          <div id="fotos-remito-lista" style="display:flex;flex-direction:column;gap:8px;"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-confirm" id="cerrar-fotos-remito">Listo</button>
+        </div>
+      </div>
     </div>`
 
   el.querySelectorAll('.tab-btn').forEach(btn => {
@@ -232,6 +259,7 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
   let activeRecorridoId = null
   let activePedidoId = null
   let currentRecorridos = []
+  let pedidoFotosActivo = null
 
   const modal = el.querySelector('#modal-new-rec')
   el.querySelector('#close-new-rec').onclick = () => modal.classList.remove('open')
@@ -260,6 +288,11 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
   el.querySelector('#close-ficha-cliente').onclick = () => modalFicha.classList.remove('open')
   el.querySelector('#cancel-ficha-cliente').onclick = () => modalFicha.classList.remove('open')
   modalFicha.onclick = (e) => { if (e.target === modalFicha) modalFicha.classList.remove('open') }
+
+  const modalFotos = el.querySelector('#modal-fotos-remito')
+  el.querySelector('#close-fotos-remito').onclick = () => { modalFotos.classList.remove('open'); load() }
+  el.querySelector('#cerrar-fotos-remito').onclick = () => { modalFotos.classList.remove('open'); load() }
+  modalFotos.onclick = (e) => { if (e.target === modalFotos) { modalFotos.classList.remove('open'); load() } }
 
   el.querySelector('#salida-rec-vehiculo').onchange = () => {
     const esPersonal = el.querySelector('#salida-rec-vehiculo').value === 'vehiculo-personal'
@@ -295,8 +328,19 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
     await load()
   }
 
+  function pedidosSinFoto(r) {
+    return r.recorrido_pedidos.filter(p => p.estado === 'entregado' && !p.foto_remito)
+  }
+
   el.querySelector('#save-regreso-rec').onclick = async () => {
     const r = currentRecorridos.find(x => x.id === activeRecorridoId)
+    const faltantes = pedidosSinFoto(r)
+    if (faltantes.length > 0) {
+      const wrap = el.querySelector('#regreso-rec-faltan-fotos')
+      wrap.style.display = 'block'
+      wrap.innerHTML = `<i class="ti ti-camera-off" style="font-size:13px"></i> Faltan fotos del remito en: ${faltantes.map(p => p.cliente_nombre).join(', ')}. Cargalas antes de cerrar el recorrido.`
+      return
+    }
     const esPersonal = r?.vehiculo === 'Vehículo personal'
     const km = esPersonal ? null : parseInt(el.querySelector('#regreso-rec-km').value)
     if (!esPersonal && (!km || km <= r.km_salida)) { alert('Ingresá un km de regreso válido'); return }
@@ -363,10 +407,55 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
         <div style="font-size:12px;color:#444;text-align:center;padding:16px">Sin aclaraciones de entrega</div>`}`
   }
 
+  async function abrirFotosRemito(pedidoId) {
+    pedidoFotosActivo = pedidoId
+    const { data: p } = await supabase.from('recorrido_pedidos').select('*').eq('id', pedidoId).single()
+    el.querySelector('#fotos-remito-title').textContent = 'Fotos del remito — ' + (p?.cliente_nombre || '')
+    renderListaFotos(p)
+    modalFotos.classList.add('open')
+  }
+
+  function renderListaFotos(p) {
+    const urls = (p?.foto_remito || '').split(',').filter(Boolean)
+    const lista = el.querySelector('#fotos-remito-lista')
+    if (urls.length === 0) {
+      lista.innerHTML = '<div style="color:#444;font-size:12px;text-align:center;padding:10px">Sin fotos cargadas todavía</div>'
+      return
+    }
+    lista.innerHTML = urls.map((url, i) => `
+      <div style="display:flex;align-items:center;gap:10px;background:#111;border:1px solid #1e1e1e;padding:8px 10px;border-radius:2px;">
+        <img src="${url}" style="width:48px;height:48px;object-fit:cover;border-radius:2px;border:1px solid #222;">
+        <span style="flex:1;font-size:12px;color:#888">Foto ${i + 1}</span>
+        <a href="${url}" download target="_blank" class="btn-sm primary"><i class="ti ti-download"></i></a>
+      </div>`).join('')
+  }
+
+  el.querySelector('#fotos-remito-tomar').onclick = () => el.querySelector('#fotos-remito-input').click()
+  el.querySelector('#fotos-remito-input').onchange = async (e) => {
+    const file = e.target.files[0]
+    if (!file || !pedidoFotosActivo) return
+    const { data: p } = await supabase.from('recorrido_pedidos').select('*').eq('id', pedidoFotosActivo).single()
+    const codigoRef = p?.codigo_interno || p?.nota_pedido || pedidoFotosActivo
+    const url = await subirFotoRemito(supabase, file, codigoRef)
+    if (!url) { alert('No se pudo subir la foto. Revisá tu conexión.'); return }
+    const urlsActuales = (p?.foto_remito || '').split(',').filter(Boolean)
+    urlsActuales.push(url)
+    await supabase.from('recorrido_pedidos').update({ foto_remito: urlsActuales.join(',') }).eq('id', pedidoFotosActivo)
+    const { data: pActualizado } = await supabase.from('recorrido_pedidos').select('*').eq('id', pedidoFotosActivo).single()
+    renderListaFotos(pActualizado)
+    e.target.value = ''
+  }
+
   el.querySelector('#rec-list').addEventListener('click', async (e) => {
     const btnFicha = e.target.closest('button[data-ficha-cliente]')
     if (btnFicha) {
       await mostrarFichaCliente(btnFicha.dataset.fichaCliente, btnFicha.dataset.clienteId || null)
+      return
+    }
+
+    const btnFoto = e.target.closest('button[data-fotos-pedido]')
+    if (btnFoto) {
+      await abrirFotosRemito(parseInt(btnFoto.dataset.fotosPedido))
       return
     }
 
@@ -396,6 +485,7 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
         Operario: ${r.operario} · Vehículo: ${r.vehiculo || '—'}<br>
         Salida: ${r.hora_salida || '—'} · Km salida: ${r.km_salida || '—'}
         ${rechazados > 0 ? `<br><span style="color:#e05555;font-size:12px"><i class="ti ti-alert-circle"></i> ${rechazados} pedido${rechazados > 1 ? 's' : ''} no entregado${rechazados > 1 ? 's' : ''} — volverán a entregas pendientes</span>` : ''}`
+      el.querySelector('#regreso-rec-faltan-fotos').style.display = 'none'
       el.querySelector('#regreso-rec-km').value = ''
       el.querySelector('#regreso-rec-km-diff').innerHTML = ''
       el.querySelector('#regreso-rec-km-wrap').style.display = esPersonal ? 'none' : 'block'
@@ -470,14 +560,17 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
         ${tot === 0 ? '<div style="color:#444;font-size:12px;padding:8px 0">Sin pedidos en este recorrido</div>' :
         r.recorrido_pedidos.map(p => {
           const clienteId = pickingClienteMap[p.codigo_interno] || null
+          const cantFotos = (p.foto_remito || '').split(',').filter(Boolean).length
           return `
           <div class="pedido-card ${p.estado === 'entregado' ? 'entregado' : p.observaciones ? 'rechazado' : ''}">
             <div class="pedido-card-header">
               <div class="pedido-orden ${p.tipo || 'pyb'}">${p.orden}</div>
               <div style="flex:1">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;flex-wrap:wrap">
                   <div style="font-size:13px;font-weight:600;color:#fff">${p.cliente_nombre}</div>
                   <button class="btn-sm" style="border-color:#2d1a52;color:#a78bfa;padding:3px 8px;font-size:10px" data-ficha-cliente="${p.cliente_nombre}" data-cliente-id="${clienteId || ''}"><i class="ti ti-info-circle" style="font-size:11px"></i> Ficha</button>
+                  ${p.estado === 'entregado' && puedeOperar ? `<button class="btn-sm" style="border-color:${cantFotos > 0 ? '#1a3a1a' : '#3a2a0a'};color:${cantFotos > 0 ? '#52c452' : '#d4a830'};padding:3px 8px;font-size:10px" data-fotos-pedido="${p.id}"><i class="ti ti-camera" style="font-size:11px"></i> ${cantFotos > 0 ? cantFotos + ' foto' + (cantFotos > 1 ? 's' : '') : 'Foto remito'}</button>` : ''}
+                  ${p.estado === 'entregado' && !puedeOperar && cantFotos > 0 ? `<button class="btn-sm" style="border-color:#1a3a1a;color:#52c452;padding:3px 8px;font-size:10px" data-fotos-pedido="${p.id}"><i class="ti ti-camera" style="font-size:11px"></i> ${cantFotos} foto${cantFotos > 1 ? 's' : ''}</button>` : ''}
                 </div>
                 <div style="font-size:11px;color:#555">
                   ${p.codigo_interno ? `<span style="font-family:'DM Mono',monospace;color:#5aadee;font-size:10px">${p.codigo_interno}</span> · ` : ''}
