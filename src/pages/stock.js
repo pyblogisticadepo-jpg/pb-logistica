@@ -95,10 +95,20 @@ export async function renderStock(el, { supabase, currentUser }) {
         <span>Mostrando último stock registrado (${ultimaFecha}). Actualizá para cargar el de hoy.</span>
       </div>`
     }
-
-    Object.entries(PRODUCTOS).forEach(([marca, productos]) => {
+Object.entries(PRODUCTOS).forEach(([marca, productos]) => {
+      let totalMarca = null
+      if (marca === 'ARLEQUIN') {
+        totalMarca = productos.reduce((acc, p) => {
+          const s = stockMap[`${marca}|${p}`]
+          if (s?.cantidad === undefined) return acc
+          return acc + (s.cantidad * unidadesPorBulto(marca, p))
+        }, 0)
+      }
       html += `<div style="margin-bottom:24px;">
-        <div style="font-size:10px;letter-spacing:3px;color:#555;text-transform:uppercase;margin-bottom:12px;font-weight:500;border-bottom:1px solid #1e1e1e;padding-bottom:8px">${marca}</div>
+        <div style="font-size:10px;letter-spacing:3px;color:#555;text-transform:uppercase;margin-bottom:12px;font-weight:500;border-bottom:1px solid #1e1e1e;padding-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+          <span>${marca}</span>
+          ${totalMarca !== null ? `<span style="color:#52c452;font-family:'DM Mono',monospace;font-size:13px;letter-spacing:0;text-transform:none">Total: ${totalMarca.toLocaleString()} u.</span>` : ''}
+        </div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;">
           ${productos.map(p => {
             const s = stockMap[`${marca}|${p}`]
@@ -115,10 +125,8 @@ export async function renderStock(el, { supabase, currentUser }) {
         </div>
       </div>`
     })
-
     content.innerHTML = html
   }
-
   async function openModal() {
     el.querySelector('#stock-modal-title').textContent = 'Actualizar stock — ' + today
     const stockPrevio = await getUltimoStock(today)
