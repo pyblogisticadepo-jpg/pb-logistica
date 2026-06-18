@@ -4,6 +4,12 @@ const PRODUCTOS = {
   'Filtros Stamps': ['SLIM','REGULAR','POCKET','SLIM LONG','REGULAR MENTHOL','SLIM MENTHOL','SLIM BIO','EXTRA SLIM']
 }
 
+function unidadesPorBulto(marca, producto) {
+  if (marca === 'VAN HASSEN' || marca === 'ARLEQUIN') return 120
+  if (marca === 'Filtros Stamps') return producto === 'POCKET' ? 624 : 240
+  return 1
+}
+
 export async function renderStock(el, { supabase, currentUser }) {
   const canEdit = ['jefe','logistica'].includes(currentUser.rol)
   const today = new Date().toISOString().split('T')[0]
@@ -42,7 +48,6 @@ export async function renderStock(el, { supabase, currentUser }) {
   el.querySelector('#stock-fecha').onchange = () => load(el.querySelector('#stock-fecha').value)
 
   async function getUltimoStock(fechaHasta) {
-    // Para cada producto busca el último registro hasta la fecha indicada
     const { data } = await supabase
       .from('stock').select('*')
       .lte('fecha', fechaHasta)
@@ -50,7 +55,6 @@ export async function renderStock(el, { supabase, currentUser }) {
       .order('created_at', { ascending: false })
 
     const stockMap = {}
-    // Para cada producto quedar con el registro más reciente
     ;(data || []).forEach(s => {
       const key = `${s.marca}|${s.producto}`
       if (!stockMap[key]) stockMap[key] = s
@@ -80,7 +84,6 @@ export async function renderStock(el, { supabase, currentUser }) {
       return
     }
 
-    // Mostrar fecha del último registro
     const fechas = [...new Set(Object.values(stockMap).map(s => s.fecha))].sort().reverse()
     const ultimaFecha = fechas[0]
     const esHoy = ultimaFecha === fecha
@@ -101,9 +104,11 @@ export async function renderStock(el, { supabase, currentUser }) {
             const s = stockMap[`${marca}|${p}`]
             const cant = s?.cantidad
             const color = cant === undefined ? '#444' : cant === 0 ? '#e05555' : cant <= 10 ? '#d4a830' : '#52c452'
+            const unidades = cant !== undefined ? cant * unidadesPorBulto(marca, p) : null
             return `<div style="background:#111;border:1px solid #1e1e1e;padding:14px 16px;border-radius:2px;">
               <div style="font-size:11px;color:#666;margin-bottom:6px">${p}</div>
               <div style="font-family:'DM Mono',monospace;font-size:24px;font-weight:600;color:${color}">${cant !== undefined ? cant : '—'}</div>
+              ${unidades !== null ? `<div style="font-size:10px;color:#555;margin-top:2px">${unidades.toLocaleString()} unidades</div>` : ''}
               ${s && s.fecha !== today ? `<div style="font-size:9px;color:#333;margin-top:4px">${s.fecha}</div>` : ''}
             </div>`
           }).join('')}
@@ -116,7 +121,6 @@ export async function renderStock(el, { supabase, currentUser }) {
 
   async function openModal() {
     el.querySelector('#stock-modal-title').textContent = 'Actualizar stock — ' + today
-    // Pre-cargar con último stock conocido
     const stockPrevio = await getUltimoStock(today)
 
     let formHtml = `
@@ -136,6 +140,7 @@ export async function renderStock(el, { supabase, currentUser }) {
               return `<div>
                 <label style="font-size:11px;color:#666;display:block;margin-bottom:4px">${p}</label>
                 <input class="form-input stock-input" data-marca="${marca}" data-producto="${p}" type="number" min="0" value="${val}" placeholder="0" style="padding:8px 10px;font-size:14px;">
+                <div class="stock-unidades-preview" data-marca="${marca}" data-producto="${p}" style="font-size:10px;color:#555;margin-top:3px">${val !== '' ? (val * unidadesPorBulto(marca, p)).toLocaleString() + ' unidades' : ''}</div>
               </div>`
             }).join('')}
           </div>
@@ -144,6 +149,16 @@ export async function renderStock(el, { supabase, currentUser }) {
 
     el.querySelector('#stock-form-body').innerHTML = formHtml
     modal.classList.add('open')
+
+    el.querySelectorAll('.stock-input').forEach(input => {
+      input.oninput = () => {
+        const preview = el.querySelector(`.stock-unidades-preview[data-marca="${input.dataset.marca}"][data-producto="${input.dataset.producto}"]`)
+        const val = parseInt(input.value)
+        if (preview) {
+          preview.textContent = !isNaN(val) ? (val * unidadesPorBulto(input.dataset.marca, input.dataset.producto)).toLocaleString() + ' unidades' : ''
+        }
+      }
+    })
   }
 
   if (canEdit) {
@@ -166,7 +181,6 @@ export async function renderStock(el, { supabase, currentUser }) {
 
       if (registros.length === 0) { alert('Ingresá al menos un valor'); return }
 
-      // Borrar solo los del día actual y reemplazar
       await supabase.from('stock').delete().eq('fecha', today)
       const { error } = await supabase.from('stock').insert(registros)
       if (error) { alert('Error: ' + error.message); return }
