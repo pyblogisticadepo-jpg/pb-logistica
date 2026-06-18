@@ -1,3 +1,12 @@
+async function subirFotoRemito(supabase, file, codigoRef) {
+  const ext = file.name.split('.').pop() || 'jpg'
+  const nombreArchivo = `${codigoRef}_${Date.now()}.${ext}`
+  const { error } = await supabase.storage.from('remitos').upload(nombreArchivo, file)
+  if (error) return null
+  const { data } = supabase.storage.from('remitos').getPublicUrl(nombreArchivo)
+  return data?.publicUrl || null
+}
+
 export async function renderDespacho(el, { supabase, currentUser, isObserver }) {
   const canEdit = ['jefe','logistica'].includes(currentUser.rol)
 
@@ -94,14 +103,38 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
           <button class="btn-confirm" style="background:#e05555" id="save-no-entregado"><i class="ti ti-arrow-back"></i> Registrar y devolver</button>
         </div>
       </div>
+    </div>
+
+    <div class="modal-overlay" id="modal-foto-retiro">
+      <div class="modal"><div class="modal-top-bar" style="background:#4dd4d4"></div>
+        <div class="modal-header">
+          <span class="modal-title" id="foto-retiro-title">Foto del remito</span>
+          <button class="modal-close" id="close-foto-retiro"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div style="background:#0d1a0d;border:1px solid #1a3a1a;padding:10px 14px;border-radius:2px;font-size:12px;color:#3a6a3a;margin-bottom:16px;">
+            <i class="ti ti-info-circle" style="font-size:11px"></i> Es obligatorio adjuntar al menos una foto del remito para confirmar el retiro.
+          </div>
+          <input type="file" accept="image/*" capture="environment" id="foto-retiro-input" style="display:none">
+          <button class="btn-confirm" style="width:100%;margin-bottom:14px" id="foto-retiro-tomar"><i class="ti ti-camera"></i> Tomar / subir foto</button>
+          <div id="foto-retiro-lista" style="display:flex;flex-direction:column;gap:8px;"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-cancel" id="cancel-foto-retiro">Cancelar</button>
+          <button class="btn-confirm" style="background:#4dd4d4;color:#000" id="confirmar-foto-retiro"><i class="ti ti-check"></i> Confirmar retiro</button>
+        </div>
+      </div>
     </div>`
 
   const modalSalida = el.querySelector('#modal-salida')
   const modalRegreso = el.querySelector('#modal-regreso')
   const modalNoEntregado = el.querySelector('#modal-no-entregado')
+  const modalFotoRetiro = el.querySelector('#modal-foto-retiro')
   let activeRecorridoId = null
   let activePedidoId = null
   let currentRecorridos = []
+  let pickingRetiroActivo = null
+  let fotosRetiroTemp = []
 
   ;['close-salida','cancel-salida'].forEach(id => {
     el.querySelector('#' + id).onclick = () => modalSalida.classList.remove('open')
@@ -112,9 +145,13 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
   ;['close-no-entregado','cancel-no-entregado'].forEach(id => {
     el.querySelector('#' + id).onclick = () => modalNoEntregado.classList.remove('open')
   })
+  ;['close-foto-retiro','cancel-foto-retiro'].forEach(id => {
+    el.querySelector('#' + id).onclick = () => modalFotoRetiro.classList.remove('open')
+  })
   modalSalida.onclick = (e) => { if (e.target === modalSalida) modalSalida.classList.remove('open') }
   modalRegreso.onclick = (e) => { if (e.target === modalRegreso) modalRegreso.classList.remove('open') }
   modalNoEntregado.onclick = (e) => { if (e.target === modalNoEntregado) modalNoEntregado.classList.remove('open') }
+  modalFotoRetiro.onclick = (e) => { if (e.target === modalFotoRetiro) modalFotoRetiro.classList.remove('open') }
 
   el.querySelector('#salida-vehiculo').onchange = () => {
     const esPersonal = el.querySelector('#salida-vehiculo').value === 'vehiculo-personal'
@@ -182,6 +219,62 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     await load()
   }
 
+  function renderFotosRetiroTemp() {
+    const lista = el.querySelector('#foto-retiro-lista')
+    if (fotosRetiroTemp.length === 0) {
+      lista.innerHTML = '<div style="color:#444;font-size:12px;text-align:center;padding:10px">Sin fotos cargadas todavía</div>'
+      return
+    }
+    lista.innerHTML = fotosRetiroTemp.map((url, i) => `
+      <div style="display:flex;align-items:center;gap:10px;background:#111;border:1px solid #1e1e1e;padding:8px 10px;border-radius:2px;">
+        <img src="${url}" style="width:48px;height:48px;object-fit:cover;border-radius:2px;border:1px solid #222;">
+        <span style="flex:1;font-size:12px;color:#888">Foto ${i + 1}</span>
+      </div>`).join('')
+  }
+
+  el.querySelector('#foto-retiro-tomar').onclick = () => el.querySelector('#foto-retiro-input').click()
+  el.querySelector('#foto-retiro-input').onchange = async (e) => {
+    const file = e.target.files[0]
+    if (!file || !pickingRetiroActivo) return
+    const url = await subirFotoRemito(supabase, file, pickingRetiroActivo.codigo_interno || pickingRetiroActivo.nota_pedido)
+    if (!url) { alert('No se pudo subir la foto. Revisá tu conexión.'); return }
+    fotosRetiroTemp.push(url)
+    renderFotosRetiroTemp()
+    e.target.value = ''
+  }
+
+  el.querySelector('#confirmar-foto-retiro').onclick = async () => {
+    if (fotosRetiroTemp.length === 0) { alert('Agregá al menos una foto del remito'); return }
+    const pk = pickingRetiroActivo
+    const hora = new Date().toTimeString().slice(0,5)
+    const fecha = new Date().toISOString().split('T')[0]
+
+    let transporteNombre = null
+    if (pk.cliente_id) {
+      const { data: cliente } = await supabase.from('clientes').select('transporte_tipo, transporte_id').eq('id', pk.cliente_id).single()
+      if (cliente?.transporte_tipo === 'externo' && cliente?.transporte_id) {
+        const { data: transp } = await supabase.from('transportes').select('nombre').eq('id', cliente.transporte_id).single()
+        transporteNombre = transp?.nombre || null
+      }
+    }
+
+    await supabase.from('retiras').insert({
+      nota_pedido: pk.nota_pedido,
+      codigo_interno: pk.codigo_interno || null,
+      cliente_nombre: pk.cliente_nombre,
+      documentacion: pk.documentacion,
+      estado: 'retirado',
+      hora_retiro: hora,
+      fecha,
+      transporte_nombre: transporteNombre,
+      foto_remito: fotosRetiroTemp.join(',')
+    })
+    modalFotoRetiro.classList.remove('open')
+    pickingRetiroActivo = null
+    fotosRetiroTemp = []
+    await load()
+  }
+
   el.querySelector('#despacho-content').addEventListener('click', async (e) => {
     const btn = e.target.closest('button[data-salida], button[data-regreso], button[data-entregar], button[data-no-entregar], button[data-marcar-retiro]')
     if (!btn) return
@@ -236,8 +329,6 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
 
     if (btn.dataset.marcarRetiro) {
       const pickingId = parseInt(btn.dataset.marcarRetiro)
-      const hora = new Date().toTimeString().slice(0,5)
-      const fecha = new Date().toISOString().split('T')[0]
       const { data: pk } = await supabase.from('picking').select('nota_pedido, cliente_nombre, documentacion, cliente_id, codigo_interno').eq('id', pickingId).single()
       if (!pk) return
       let yaRetirado = null
@@ -250,26 +341,11 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       }
       if (yaRetirado) { alert('Este pedido ya fue marcado como retirado anteriormente'); return }
 
-      let transporteNombre = null
-      if (pk.cliente_id) {
-        const { data: cliente } = await supabase.from('clientes').select('transporte_tipo, transporte_id').eq('id', pk.cliente_id).single()
-        if (cliente?.transporte_tipo === 'externo' && cliente?.transporte_id) {
-          const { data: transp } = await supabase.from('transportes').select('nombre').eq('id', cliente.transporte_id).single()
-          transporteNombre = transp?.nombre || null
-        }
-      }
-
-      await supabase.from('retiras').insert({
-        nota_pedido: pk.nota_pedido,
-        codigo_interno: pk.codigo_interno || null,
-        cliente_nombre: pk.cliente_nombre,
-        documentacion: pk.documentacion,
-        estado: 'retirado',
-        hora_retiro: hora,
-        fecha,
-        transporte_nombre: transporteNombre
-      })
-      await load()
+      pickingRetiroActivo = pk
+      fotosRetiroTemp = []
+      el.querySelector('#foto-retiro-title').textContent = 'Foto del remito — ' + pk.cliente_nombre
+      renderFotosRetiroTemp()
+      modalFotoRetiro.classList.add('open')
     }
   })
 
@@ -300,7 +376,6 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       .order('created_at', { ascending: false })
     currentRecorridos = recData || []
 
-    // Pedidos sin documentos (preparacion o armado)
     const { data: sinDocs } = await supabase
       .from('picking')
       .select('id, nota_pedido, codigo_interno, cliente_nombre, estado, lineas')
@@ -362,7 +437,6 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
 
     let html = ''
 
-    // SECCION SIN DOCUMENTOS
     if (sinDocs && sinDocs.length > 0) {
       html += `<div class="section-label" style="margin-top:0">Sin documentos</div>`
       html += sinDocs.map(p => {
@@ -417,14 +491,18 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
 
     if (despachadosRetiro.length > 0) {
       html += `<div class="section-label" style="margin-top:${retirosPendientes.length > 0 || entregasPendientes.length > 0 || sinDocs?.length > 0 ? '24px' : '0'}">Retirados hoy</div>`
-      html += despachadosRetiro.map(r => `
+      html += despachadosRetiro.map(r => {
+        const cantFotos = (r.foto_remito || '').split(',').filter(Boolean).length
+        return `
         <div style="background:#0d1e0d;border:1px solid #1a361a;padding:12px 16px;margin-bottom:8px;border-radius:2px;display:flex;align-items:center;gap:12px;opacity:.8">
           <div style="flex:1">
             <div style="font-size:13px;color:#52c452;font-weight:500">${r.cliente_nombre}</div>
             <div style="font-size:11px;color:#2a5a2a;margin-top:2px">${r.codigo_interno || r.nota_pedido}${r.transporte_nombre ? ' · ' + r.transporte_nombre : ''} · Retirado: ${r.hora_retiro || '—'}</div>
           </div>
+          ${cantFotos > 0 ? `<a href="${r.foto_remito.split(',')[0]}" target="_blank" download style="display:flex;align-items:center;gap:4px;padding:5px 10px;background:#0a1a1a;border:1px solid #1a3a3a;border-radius:2px;color:#4dd4d4;font-size:10px;text-decoration:none"><i class="ti ti-camera"></i> ${cantFotos}</a>` : ''}
           <span class="badge badge-ok" style="font-size:9px">✓ Retirado</span>
-        </div>`).join('')
+        </div>`
+      }).join('')
     }
 
     if (currentRecorridos.length > 0) {
@@ -449,12 +527,14 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
             </div>
           </div>
           ${tot === 0 ? '<div style="color:#444;font-size:12px;padding:8px 0">Sin pedidos en este recorrido</div>' :
-          r.recorrido_pedidos.map(p => `
+          r.recorrido_pedidos.map(p => {
+            const cantFotosP = (p.foto_remito || '').split(',').filter(Boolean).length
+            return `
             <div class="pedido-card ${p.estado === 'entregado' ? 'entregado' : p.observaciones ? 'rechazado' : ''}">
               <div class="pedido-card-header">
                 <div class="pedido-orden ${p.tipo || 'pyb'}">${p.orden}</div>
                 <div style="flex:1">
-                  <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:2px">${p.cliente_nombre}</div>
+                  <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:2px">${p.cliente_nombre} ${cantFotosP > 0 ? `<a href="${p.foto_remito.split(',')[0]}" target="_blank" download style="font-size:9px;color:#4dd4d4;text-decoration:none;margin-left:6px"><i class="ti ti-camera"></i> ${cantFotosP}</a>` : ''}</div>
                   <div style="font-size:11px;color:#555">
                     ${p.codigo_interno ? `<span style="font-family:'DM Mono',monospace;color:#5aadee;font-size:10px">${p.codigo_interno}</span> · ` : ''}
                     <i class="ti ti-map-pin" style="font-size:10px"></i> ${p.direccion || '—'} · ${p.nota_pedido}${p.tipo === 'externo' ? ' · ' + (p.transporte_nombre || '') : ''}
@@ -470,7 +550,8 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
                 </div>
               </div>
               ${p.estado === 'entregado' ? `<div class="pedido-entregado-info"><span style="color:#52c452;font-family:'DM Mono',monospace;font-size:11px"><i class="ti ti-clock" style="font-size:10px"></i> Entregado ${p.hora_entrega || ''}</span></div>` : ''}
-            </div>`).join('')}
+            </div>`
+          }).join('')}
         </div>`
       }).join('')
     }
