@@ -328,13 +328,10 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
     await load()
   }
 
-  function pedidosSinFoto(r) {
-    return r.recorrido_pedidos.filter(p => p.estado === 'entregado' && !p.foto_remito)
-  }
-
-  el.querySelector('#save-regreso-rec').onclick = async () => {
+el.querySelector('#save-regreso-rec').onclick = async () => {
     const r = currentRecorridos.find(x => x.id === activeRecorridoId)
-    const faltantes = pedidosSinFoto(r)
+    const { data: pedidosFrescos } = await supabase.from('recorrido_pedidos').select('cliente_nombre, estado, foto_remito').eq('recorrido_id', activeRecorridoId)
+    const faltantes = (pedidosFrescos || []).filter(p => p.estado === 'entregado' && !p.foto_remito)
     if (faltantes.length > 0) {
       const wrap = el.querySelector('#regreso-rec-faltan-fotos')
       wrap.style.display = 'block'
