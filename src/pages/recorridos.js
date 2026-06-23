@@ -44,6 +44,7 @@ let leafletLoaded = false
 let mapInstance = null
 let mapMarkers = []
 let mapInterval = null
+let recListInterval = null
 
 async function loadLeaflet() {
   if (leafletLoaded) return
@@ -74,6 +75,7 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
   const isOperario = currentUser.rol === 'operario'
 
   if (mapInterval) { clearInterval(mapInterval); mapInterval = null }
+  if (recListInterval) { clearInterval(recListInterval); recListInterval = null }
 
   el.innerHTML = `
     <div class="page-header">
@@ -245,6 +247,10 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
       </div>
     </div>`
 
+  function hayModalAbierto() {
+    return el.querySelectorAll('.modal-overlay.open').length > 0
+  }
+
   el.querySelectorAll('.tab-btn').forEach(btn => {
     btn.onclick = () => {
       el.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'))
@@ -328,7 +334,7 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
     await load()
   }
 
-el.querySelector('#save-regreso-rec').onclick = async () => {
+  el.querySelector('#save-regreso-rec').onclick = async () => {
     const r = currentRecorridos.find(x => x.id === activeRecorridoId)
     const { data: pedidosFrescos } = await supabase.from('recorrido_pedidos').select('cliente_nombre, estado, foto_remito').eq('recorrido_id', activeRecorridoId)
     const faltantes = (pedidosFrescos || []).filter(p => p.estado === 'entregado' && !p.foto_remito)
@@ -822,4 +828,6 @@ el.querySelector('#save-regreso-rec').onclick = async () => {
   }
 
   await load()
+
+  recListInterval = setInterval(() => { if (!hayModalAbierto()) load() }, 30000)
 }
