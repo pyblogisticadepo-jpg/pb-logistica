@@ -1,5 +1,10 @@
+let resumenInterval = null
+
 export async function renderResumen(el, { supabase, currentUser }) {
   const today = new Date().toISOString().split('T')[0]
+
+  if (resumenInterval) { clearInterval(resumenInterval); resumenInterval = null }
+
   el.innerHTML = `
     <div class="page-header">
       <div class="page-title-group"><span class="page-title">Resumen diario</span></div>
@@ -42,6 +47,10 @@ export async function renderResumen(el, { supabase, currentUser }) {
         </div>
       </div>
     </div>`
+
+  function hayModalAbierto() {
+    return el.querySelectorAll('.modal-overlay.open').length > 0
+  }
 
   const modalDetalle = el.querySelector('#modal-detalle')
   el.querySelector('#close-detalle').onclick = () => modalDetalle.classList.remove('open')
@@ -303,4 +312,6 @@ export async function renderResumen(el, { supabase, currentUser }) {
     })
     modalDetalle.classList.add('open')
   }
+
+  resumenInterval = setInterval(() => { if (!hayModalAbierto()) loadResumen(dateInput.value) }, 30000)
 }
