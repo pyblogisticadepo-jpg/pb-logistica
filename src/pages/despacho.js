@@ -1,3 +1,5 @@
+let despachoInterval = null
+
 async function subirFotoRemito(supabase, file, codigoRef) {
   const ext = file.name.split('.').pop() || 'jpg'
   const nombreArchivo = `${codigoRef}_${Date.now()}.${ext}`
@@ -9,6 +11,8 @@ async function subirFotoRemito(supabase, file, codigoRef) {
 
 export async function renderDespacho(el, { supabase, currentUser, isObserver }) {
   const canEdit = ['jefe','logistica'].includes(currentUser.rol)
+
+  if (despachoInterval) { clearInterval(despachoInterval); despachoInterval = null }
 
   el.innerHTML = `
     <div class="page-header">
@@ -564,4 +568,6 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
   }
 
   await load()
+
+  despachoInterval = setInterval(load, 30000)
 }
