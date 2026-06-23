@@ -1,4 +1,8 @@
+let pickingInterval = null
+
 export async function renderPicking(el, { supabase, currentUser, isObserver }) {
+  if (pickingInterval) { clearInterval(pickingInterval); pickingInterval = null }
+
   el.innerHTML = `
     <div class="page-header">
       <div class="page-title-group"><span class="page-title">Picking</span><span class="page-subtitle" id="picking-count"></span></div>
@@ -184,6 +188,10 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
         </div>
       </div>
     </div>`
+
+  function hayModalAbierto() {
+    return el.querySelectorAll('.modal-overlay.open').length > 0
+  }
 
   let allPicking = []
   let editingId = null
@@ -630,4 +638,6 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
   }
 
   await load()
+
+  pickingInterval = setInterval(() => { if (!hayModalAbierto()) load() }, 30000)
 }
