@@ -1,4 +1,8 @@
+let historialInterval = null
+
 export async function renderHistorial(el, { supabase, currentUser }) {
+  if (historialInterval) { clearInterval(historialInterval); historialInterval = null }
+
   el.innerHTML = `
     <div class="page-header">
       <div class="page-title-group"><span class="page-title">Historial</span><span class="page-subtitle" id="historial-count"></span></div>
@@ -48,6 +52,10 @@ export async function renderHistorial(el, { supabase, currentUser }) {
         </div>
       </div>
     </div>`
+
+  function hayModalAbierto() {
+    return el.querySelectorAll('.modal-overlay.open').length > 0
+  }
 
   const modal = el.querySelector('#modal-h-detalle')
   el.querySelector('#close-h-detalle').onclick = () => modal.classList.remove('open')
@@ -267,4 +275,6 @@ export async function renderHistorial(el, { supabase, currentUser }) {
   }
 
   await load()
+
+  historialInterval = setInterval(() => { if (!hayModalAbierto()) load() }, 30000)
 }
