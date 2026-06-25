@@ -334,10 +334,14 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
     await load()
   }
 
-  el.querySelector('#save-regreso-rec').onclick = async () => {
+el.querySelector('#save-regreso-rec').onclick = async () => {
     const r = currentRecorridos.find(x => x.id === activeRecorridoId)
-    const { data: pedidosFrescos } = await supabase.from('recorrido_pedidos').select('cliente_nombre, estado, foto_remito').eq('recorrido_id', activeRecorridoId)
-    const faltantes = (pedidosFrescos || []).filter(p => p.estado === 'entregado' && !p.foto_remito)
+    const { data: pedidosFrescos, error: errorFotos } = await supabase.from('recorrido_pedidos').select('cliente_nombre, estado, foto_remito').eq('recorrido_id', activeRecorridoId)
+    if (errorFotos || !pedidosFrescos) {
+      alert('No se pudo verificar las fotos del remito (error de conexión). Intentá de nuevo antes de cerrar el recorrido.')
+      return
+    }
+    const faltantes = pedidosFrescos.filter(p => p.estado === 'entregado' && !p.foto_remito)
     if (faltantes.length > 0) {
       const wrap = el.querySelector('#regreso-rec-faltan-fotos')
       wrap.style.display = 'block'
