@@ -31,7 +31,7 @@ const ROLES_CLASS = {
 
 const MODULES = [
   { id: 'resumen',        label: 'Resumen diario',  icon: 'ti-layout-dashboard', roles: ['jefe','logistica','operario','vendedor','observador'], section: 'General' },
-  { id: 'historial',      label: 'Historial',        icon: 'ti-history',          roles: ['jefe','logistica','vendedor','observador'],            section: 'General' },
+  { id: 'historial',      label: 'Historial',        icon: 'ti-history',          roles: ['jefe','logistica','operario','vendedor','observador'], section: 'General' },
   { id: 'clientes',       label: 'Clientes',         icon: 'ti-building-store',   roles: ['jefe','logistica','vendedor','observador'],            section: 'Operaciones' },
   { id: 'transportes',    label: 'Transportes',      icon: 'ti-truck',            roles: ['jefe','logistica','operario','observador'],            section: 'Operaciones' },
   { id: 'picking',        label: 'Picking',          icon: 'ti-package',          roles: ['jefe','logistica','observador'],                       section: 'Operaciones' },
