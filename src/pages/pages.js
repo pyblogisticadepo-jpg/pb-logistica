@@ -195,8 +195,8 @@ export async function renderVehiculos(el, { supabase, currentUser, isObserver })
 // RECEPCION
 export async function renderRecepcion(el, { supabase, currentUser, isObserver }) {
   const canEdit = ['jefe','logistica','operario'].includes(currentUser.rol)
-  const canEditPost = currentUser.rol === 'jefe'
-  const canAddGuardado = ['jefe','logistica'].includes(currentUser.rol)
+const canEditPost = currentUser.rol === 'jefe'
+const canAddGuardado = ['jefe','logistica','operario'].includes(currentUser.rol)
 
   const { data: profiles } = await supabase.from('profiles').select('nombre').eq('activo', true).in('rol', ['jefe','logistica','operario'])
   const operarios = (profiles || []).map(p => p.nombre)
