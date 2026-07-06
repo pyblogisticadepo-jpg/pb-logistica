@@ -195,6 +195,11 @@ export async function renderVehiculos(el, { supabase, currentUser, isObserver })
 // RECEPCION
 export async function renderRecepcion(el, { supabase, currentUser, isObserver }) {
   const canEdit = ['jefe','logistica','operario'].includes(currentUser.rol)
+  const canEditPost = currentUser.rol === 'jefe'
+  const canAddGuardado = ['jefe','logistica'].includes(currentUser.rol)
+
+  const { data: profiles } = await supabase.from('profiles').select('nombre').eq('activo', true).in('rol', ['jefe','logistica','operario'])
+  const operarios = (profiles || []).map(p => p.nombre)
 
   el.innerHTML = `
     <div class="page-header">
@@ -203,7 +208,7 @@ export async function renderRecepcion(el, { supabase, currentUser, isObserver })
     </div>
     ${isObserver ? '<div class="observer-badge"><i class="ti ti-eye"></i> Modo observador — solo lectura</div>' : ''}
     <div class="search-bar">
-      <input class="search-input" id="rec-search" placeholder="Buscar por proveedor, transporte...">
+      <input class="search-input" id="rec-search" placeholder="Buscar por proveedor, transporte, operario...">
     </div>
     <div class="date-picker-row" style="margin-bottom:16px;">
       <span class="date-picker-label">Desde</span>
@@ -214,9 +219,10 @@ export async function renderRecepcion(el, { supabase, currentUser, isObserver })
     </div>
     <div id="rec-list"><div class="loading">Cargando...</div></div>
 
+    <!-- MODAL NUEVA RECEPCION -->
     <div class="modal-overlay" id="modal-rec">
       <div class="modal"><div class="modal-top-bar"></div>
-        <div class="modal-header"><span class="modal-title" id="modal-rec-title">Nueva recepción</span><button class="modal-close" id="close-rec"><i class="ti ti-x"></i></button></div>
+        <div class="modal-header"><span class="modal-title">Nueva recepción</span><button class="modal-close" id="close-rec"><i class="ti ti-x"></i></button></div>
         <div class="modal-body">
           <div class="form-row"><label class="form-label">Proveedor <span class="req">*</span></label><input class="form-input" id="r-prov" placeholder="Nombre del proveedor"></div>
           <div class="form-row-2">
@@ -224,46 +230,103 @@ export async function renderRecepcion(el, { supabase, currentUser, isObserver })
             <div><label class="form-label">Bultos <span class="req">*</span></label><input class="form-input" id="r-bultos" type="number" min="1" placeholder="Ej: 24"></div>
           </div>
           <div class="form-row"><label class="form-label">Quién controló <span class="req">*</span></label>
-            <select class="form-select" id="r-controla"></select>
+            <select class="form-select" id="r-controla">
+              <option value="">— seleccionar —</option>
+              ${operarios.map(o => `<option>${o}</option>`).join('')}
+            </select>
           </div>
-          <div class="form-row"><label class="form-label">Observaciones</label>
-            <textarea class="form-textarea" id="r-obs" placeholder="Estado de la mercadería, faltantes..." style="min-height:60px;resize:none"></textarea>
+          <div class="form-row">
+            <label class="form-label">¿Llegó completo?</label>
+            <div style="display:flex;gap:12px;margin-top:4px">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:#ccc">
+                <input type="radio" name="r-completo" value="si" checked style="accent-color:#52c452"> Sí, completo
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:#ccc">
+                <input type="radio" name="r-completo" value="no" style="accent-color:#e05555"> Con faltantes
+              </label>
+            </div>
+          </div>
+          <div class="form-row" id="r-faltantes-wrap" style="display:none">
+            <label class="form-label">Descripción de faltantes <span class="req">*</span></label>
+            <textarea class="form-textarea" id="r-faltantes" placeholder="Ej: Faltaron 3 bultos de filtros Stamps pocket..." style="min-height:60px;resize:none"></textarea>
+          </div>
+          <div class="form-row"><label class="form-label">Observaciones generales</label>
+            <textarea class="form-textarea" id="r-obs" placeholder="Estado de la mercadería, cajas rotas, etc." style="min-height:60px;resize:none"></textarea>
+          </div>
+          <div class="form-row">
+            <label class="form-label">Fotos <span style="font-size:10px;color:#555">(remito, daños, etc.)</span></label>
+            <input type="file" accept="image/*" capture="environment" id="r-foto-input" style="display:none" multiple>
+            <button class="btn-sm primary" id="r-foto-btn" style="width:100%;padding:10px"><i class="ti ti-camera"></i> Agregar foto</button>
+            <div id="r-fotos-lista" style="display:flex;flex-direction:column;gap:6px;margin-top:8px;"></div>
           </div>
         </div>
-        <div class="modal-footer"><button class="btn-cancel" id="cancel-rec">Cancelar</button><button class="btn-confirm" id="save-rec">Registrar</button></div>
+        <div class="modal-footer"><button class="btn-cancel" id="cancel-rec">Cancelar</button><button class="btn-confirm" id="save-rec"><i class="ti ti-check"></i> Registrar</button></div>
       </div>
     </div>
 
+    <!-- MODAL DETALLE / GUARDADO / EDICION -->
     <div class="modal-overlay" id="modal-rec-detalle">
-      <div class="modal"><div class="modal-top-bar"></div>
+      <div class="modal" style="max-width:560px"><div class="modal-top-bar"></div>
         <div class="modal-header">
           <span class="modal-title" id="rec-detalle-title">Detalle recepción</span>
           <button class="modal-close" id="close-rec-detalle"><i class="ti ti-x"></i></button>
         </div>
         <div class="modal-body" id="rec-detalle-body"></div>
-        <div class="modal-footer"><button class="btn-cancel" id="cancel-rec-detalle">Cerrar</button></div>
+        <div class="modal-footer" id="rec-detalle-footer">
+          <button class="btn-cancel" id="cancel-rec-detalle">Cerrar</button>
+        </div>
       </div>
     </div>`
 
   const modal = el.querySelector('#modal-rec')
   const modalDetalle = el.querySelector('#modal-rec-detalle')
-  el.querySelector('#close-rec').onclick = () => modal.classList.remove('open')
-  el.querySelector('#cancel-rec').onclick = () => modal.classList.remove('open')
-  modal.onclick = (e) => { if (e.target === modal) modal.classList.remove('open') }
+  el.querySelector('#close-rec').onclick = () => { modal.classList.remove('open'); fotosNuevas = [] }
+  el.querySelector('#cancel-rec').onclick = () => { modal.classList.remove('open'); fotosNuevas = [] }
+  modal.onclick = (e) => { if (e.target === modal) { modal.classList.remove('open'); fotosNuevas = [] } }
   el.querySelector('#close-rec-detalle').onclick = () => modalDetalle.classList.remove('open')
   el.querySelector('#cancel-rec-detalle').onclick = () => modalDetalle.classList.remove('open')
   modalDetalle.onclick = (e) => { if (e.target === modalDetalle) modalDetalle.classList.remove('open') }
 
-  const { data: profiles } = await supabase.from('profiles').select('nombre').eq('activo', true).in('rol', ['jefe','logistica','operario'])
-  el.querySelector('#r-controla').innerHTML = '<option value="">— seleccionar —</option>' + (profiles || []).map(p => `<option>${p.nombre}</option>`).join('')
+  // Toggle faltantes
+  el.querySelectorAll('input[name="r-completo"]').forEach(r => {
+    r.onchange = () => {
+      el.querySelector('#r-faltantes-wrap').style.display = r.value === 'no' ? 'block' : 'none'
+    }
+  })
+
+  // Fotos en nueva recepción
+  let fotosNuevas = []
+  el.querySelector('#r-foto-btn').onclick = () => el.querySelector('#r-foto-input').click()
+  el.querySelector('#r-foto-input').onchange = async (e) => {
+    const files = Array.from(e.target.files)
+    for (const file of files) {
+      const ext = file.name.split('.').pop() || 'jpg'
+      const nombre = `rec_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`
+      const { error } = await supabase.storage.from('Remitos').upload(nombre, file)
+      if (error) { alert('No se pudo subir la foto'); continue }
+      const { data } = supabase.storage.from('Remitos').getPublicUrl(nombre)
+      fotosNuevas.push(data.publicUrl)
+    }
+    renderFotosNuevas()
+    e.target.value = ''
+  }
+
+  function renderFotosNuevas() {
+    const lista = el.querySelector('#r-fotos-lista')
+    if (fotosNuevas.length === 0) { lista.innerHTML = ''; return }
+    lista.innerHTML = fotosNuevas.map((url, i) => `
+      <div style="display:flex;align-items:center;gap:8px;background:#111;border:1px solid #1e1e1e;padding:6px 10px;border-radius:2px;">
+        <img src="${url}" style="width:40px;height:40px;object-fit:cover;border-radius:2px;">
+        <span style="flex:1;font-size:12px;color:#888">Foto ${i+1}</span>
+        <button class="btn-sm" style="color:#e05555;border-color:#3a1a1a;padding:3px 8px" data-rm-foto="${i}"><i class="ti ti-x"></i></button>
+      </div>`).join('')
+    lista.querySelectorAll('[data-rm-foto]').forEach(btn => {
+      btn.onclick = () => { fotosNuevas.splice(parseInt(btn.dataset.rmFoto), 1); renderFotosNuevas() }
+    })
+  }
 
   let allRecepciones = []
-  const today = new Date().toISOString().split('T')[0]
-
-  // Setear fecha de hoy por defecto
-  el.querySelector('#rec-hasta').value = today
-  const monthStart = today.substring(0, 8) + '01'
-  el.querySelector('#rec-desde').value = monthStart
+  let recepcionActiva = null
 
   async function load() {
     const { data } = await supabase.from('recepciones').select('*').order('fecha', { ascending: false }).order('hora', { ascending: false })
@@ -277,11 +340,14 @@ export async function renderRecepcion(el, { supabase, currentUser, isObserver })
     const hasta = el.querySelector('#rec-hasta').value
 
     const lista = allRecepciones.filter(r => {
+      const guardadoStr = (r.guardado_por || []).map(g => g.operario + ' ' + g.ubicacion).join(' ').toLowerCase()
       const matchQ = !q ||
         (r.proveedor || '').toLowerCase().includes(q) ||
         (r.transporte || '').toLowerCase().includes(q) ||
         (r.controla || '').toLowerCase().includes(q) ||
-        (r.observaciones || '').toLowerCase().includes(q)
+        (r.observaciones || '').toLowerCase().includes(q) ||
+        (r.faltantes || '').toLowerCase().includes(q) ||
+        guardadoStr.includes(q)
       const matchDesde = !desde ? true : r.fecha >= desde
       const matchHasta = !hasta ? true : r.fecha <= hasta
       return matchQ && matchDesde && matchHasta
@@ -295,40 +361,166 @@ export async function renderRecepcion(el, { supabase, currentUser, isObserver })
     const div = el.querySelector('#rec-list')
     if (lista.length === 0) { div.innerHTML = '<div class="empty-state">Sin recepciones</div>'; return }
     div.innerHTML = `<table class="data-table">
-      <thead><tr><th>Fecha</th><th>Proveedor</th><th>Transporte</th><th>Bultos</th><th>Controló</th><th>Hora</th><th></th></tr></thead>
-      <tbody>${lista.map(r => `
-        <tr>
+      <thead><tr><th>Fecha</th><th>Proveedor</th><th>Transporte</th><th>Bultos</th><th>Estado</th><th>Controló</th><th>Guardado</th><th></th></tr></thead>
+      <tbody>${lista.map(r => {
+        const completo = r.completo !== false
+        const guardados = (r.guardado_por || []).length
+        const cantFotos = (r.fotos || '').split(',').filter(Boolean).length
+        return `<tr>
           <td style="font-family:'DM Mono',monospace;color:#888;font-size:11px">${r.fecha || '—'}</td>
           <td style="color:#ccc;font-weight:500">${r.proveedor}</td>
           <td style="color:#888">${r.transporte || '—'}</td>
           <td style="font-family:'DM Mono',monospace;color:#d4a830">${r.bultos}</td>
+          <td>${completo
+            ? '<span class="badge badge-ok" style="font-size:9px">Completo</span>'
+            : '<span class="badge" style="background:#1f0d0d;color:#e05555;font-size:9px">Con faltantes</span>'}</td>
           <td style="color:#888;font-size:12px">${r.controla}</td>
-          <td style="font-family:'DM Mono',monospace;color:#555;font-size:11px">${r.hora || '—'}</td>
-          <td><button class="btn-sm primary" data-detalle='${JSON.stringify(r).replace(/'/g, "&#39;")}' ><i class="ti ti-eye"></i></button></td>
-        </tr>`).join('')}
+          <td style="font-size:11px;color:${guardados > 0 ? '#52c452' : '#555'}">${guardados > 0 ? guardados + ' op.' : '—'}</td>
+          <td style="display:flex;gap:4px;align-items:center">
+            ${cantFotos > 0 ? `<span style="color:#4dd4d4;font-size:11px"><i class="ti ti-camera"></i> ${cantFotos}</span>` : ''}
+            <button class="btn-sm primary" data-id="${r.id}"><i class="ti ti-eye"></i></button>
+          </td>
+        </tr>`
+      }).join('')}
       </tbody></table>`
 
-    div.querySelectorAll('[data-detalle]').forEach(btn => {
+    div.querySelectorAll('[data-id]').forEach(btn => {
       btn.onclick = () => {
-        const r = JSON.parse(btn.dataset.detalle.replace(/&#39;/g, "'"))
-        mostrarDetalle(r)
+        const r = allRecepciones.find(x => x.id === parseInt(btn.dataset.id))
+        if (r) mostrarDetalle(r)
       }
     })
   }
 
   function mostrarDetalle(r) {
+    recepcionActiva = r
+    const completo = r.completo !== false
+    const fotos = (r.fotos || '').split(',').filter(Boolean)
+    const guardados = r.guardado_por || []
+
     el.querySelector('#rec-detalle-title').textContent = r.proveedor + ' — ' + r.fecha
     el.querySelector('#rec-detalle-body').innerHTML = `
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
         <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Proveedor</div><div style="color:#ccc;font-weight:500">${r.proveedor}</div></div>
-        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Fecha</div><div style="font-family:'DM Mono',monospace;color:#888">${r.fecha || '—'}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Fecha / Hora</div><div style="font-family:'DM Mono',monospace;color:#888">${r.fecha || '—'} ${r.hora || ''}</div></div>
         <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Transporte</div><div style="color:#aaa">${r.transporte || '—'}</div></div>
-        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Hora</div><div style="font-family:'DM Mono',monospace;color:#888">${r.hora || '—'}</div></div>
         <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Bultos</div><div style="font-family:'DM Mono',monospace;color:#d4a830;font-size:22px">${r.bultos}</div></div>
         <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Controló</div><div style="color:#ccc">${r.controla}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Estado</div><div>${completo
+          ? '<span class="badge badge-ok">Completo</span>'
+          : '<span class="badge" style="background:#1f0d0d;color:#e05555">Con faltantes</span>'}</div></div>
       </div>
-      ${r.observaciones ? `<div style="background:#1a1500;border:1px solid #2a2000;padding:10px 14px;border-radius:2px;font-size:12px;color:#d4a830"><i class="ti ti-note" style="font-size:11px"></i> ${r.observaciones}</div>` : ''}`
+      ${!completo && r.faltantes ? `
+        <div style="background:#1f0d0d;border:1px solid #3a1a1a;padding:10px 14px;border-radius:2px;font-size:12px;color:#e05555;margin-bottom:12px">
+          <div style="font-size:9px;letter-spacing:2px;color:#e05555;text-transform:uppercase;margin-bottom:4px"><i class="ti ti-alert-circle"></i> Faltantes</div>
+          ${r.faltantes}
+        </div>` : ''}
+      ${r.observaciones ? `
+        <div style="background:#1a1500;border:1px solid #2a2000;padding:10px 14px;border-radius:2px;font-size:12px;color:#d4a830;margin-bottom:12px">
+          <div style="font-size:9px;letter-spacing:2px;color:#d4a830;text-transform:uppercase;margin-bottom:4px"><i class="ti ti-note"></i> Observaciones</div>
+          ${r.observaciones}
+        </div>` : ''}
+      ${fotos.length > 0 ? `
+        <div style="margin-bottom:16px">
+          <div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:8px">Fotos (${fotos.length})</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            ${fotos.map(url => `
+              <a href="${url}" target="_blank">
+                <img src="${url}" style="width:72px;height:72px;object-fit:cover;border-radius:2px;border:1px solid #222;cursor:pointer;">
+              </a>`).join('')}
+          </div>
+        </div>` : ''}
+      <div style="border-top:1px solid #1e1e1e;padding-top:14px;margin-top:4px">
+        <div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:10px">Guardado en depósito</div>
+        ${guardados.length === 0
+          ? `<div style="font-size:12px;color:#444;margin-bottom:12px">Sin registrar todavía</div>`
+          : guardados.map((g, i) => `
+            <div style="display:flex;align-items:center;gap:10px;background:#111;border:1px solid #1e1e1e;padding:8px 12px;border-radius:2px;margin-bottom:6px;">
+              <div style="font-size:12px;color:#ccc;font-weight:500;min-width:80px">${g.operario}</div>
+              <div style="font-family:'DM Mono',monospace;font-size:11px;color:#5aadee">${g.ubicacion}</div>
+            </div>`).join('')}
+        ${canAddGuardado ? `
+          <div id="guardado-form" style="margin-top:10px">
+            <div style="font-size:11px;color:#555;margin-bottom:8px">Agregar operario que guardó:</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+              <div style="flex:1;min-width:120px">
+                <label style="font-size:10px;color:#555;display:block;margin-bottom:4px">Operario</label>
+                <select class="form-select" id="g-operario" style="font-size:12px">
+                  <option value="">— seleccionar —</option>
+                  ${operarios.map(o => `<option>${o}</option>`).join('')}
+                </select>
+              </div>
+              <div style="flex:1;min-width:100px">
+                <label style="font-size:10px;color:#555;display:block;margin-bottom:4px">Ubicación</label>
+                <input class="form-input" id="g-ubicacion" placeholder="Ej: PI-3-2" style="font-size:12px;font-family:'DM Mono',monospace">
+              </div>
+              <button class="btn-sm green" id="btn-add-guardado"><i class="ti ti-plus"></i> Agregar</button>
+            </div>
+          </div>` : ''}
+      </div>
+      ${r.editado_por ? `<div style="font-size:11px;color:#444;margin-top:12px;border-top:1px solid #1a1a1a;padding-top:8px">Última edición: ${r.editado_por} · ${r.editado_at ? new Date(r.editado_at).toLocaleString('es-AR') : '—'}</div>` : ''}`
+
+    // Footer según permisos
+    const footer = el.querySelector('#rec-detalle-footer')
+    footer.innerHTML = `<button class="btn-cancel" id="cancel-rec-detalle">Cerrar</button>`
+    if (canEditPost) {
+      footer.innerHTML += `<button class="btn-confirm" style="background:#1a3a1a;color:#52c452" id="btn-editar-rec"><i class="ti ti-pencil"></i> Editar</button>`
+    }
+    el.querySelector('#cancel-rec-detalle').onclick = () => modalDetalle.classList.remove('open')
+
+    // Agregar guardado
+    if (canAddGuardado) {
+      el.querySelector('#btn-add-guardado').onclick = async () => {
+        const operario = el.querySelector('#g-operario').value
+        const ubicacion = el.querySelector('#g-ubicacion').value.trim().toUpperCase()
+        if (!operario || !ubicacion) { alert('Completá operario y ubicación'); return }
+        const nuevosGuardados = [...(recepcionActiva.guardado_por || []), { operario, ubicacion }]
+        const { error } = await supabase.from('recepciones').update({ guardado_por: nuevosGuardados }).eq('id', recepcionActiva.id)
+        if (error) { alert('Error: ' + error.message); return }
+        recepcionActiva.guardado_por = nuevosGuardados
+        await load()
+        mostrarDetalle(recepcionActiva)
+      }
+    }
+
+    // Editar (solo jefe)
+    if (canEditPost) {
+      el.querySelector('#btn-editar-rec').onclick = () => abrirEdicion(recepcionActiva)
+    }
+
     modalDetalle.classList.add('open')
+  }
+
+  function abrirEdicion(r) {
+    modalDetalle.classList.remove('open')
+    const completo = r.completo !== false
+
+    el.querySelector('#modal-rec-title') && (el.querySelector('#modal-rec-title').textContent = 'Editar recepción')
+
+    // Reusar modal de nueva recepción con datos precargados
+    el.querySelector('#r-prov').value = r.proveedor || ''
+    el.querySelector('#r-trans').value = r.transporte || ''
+    el.querySelector('#r-bultos').value = r.bultos || ''
+    el.querySelector('#r-controla').value = r.controla || ''
+    el.querySelector('#r-obs').value = r.observaciones || ''
+    el.querySelector('#r-faltantes').value = r.faltantes || ''
+
+    const radioSi = el.querySelector('input[name="r-completo"][value="si"]')
+    const radioNo = el.querySelector('input[name="r-completo"][value="no"]')
+    radioSi.checked = completo
+    radioNo.checked = !completo
+    el.querySelector('#r-faltantes-wrap').style.display = completo ? 'none' : 'block'
+
+    fotosNuevas = (r.fotos || '').split(',').filter(Boolean)
+    renderFotosNuevas()
+
+    // Cambiar botón guardar a modo edición
+    const btnSave = el.querySelector('#save-rec')
+    btnSave.innerHTML = '<i class="ti ti-check"></i> Guardar cambios'
+    btnSave._editId = r.id
+    btnSave._editMode = true
+
+    modal.classList.add('open')
   }
 
   el.querySelector('#rec-search').oninput = filter
@@ -343,26 +535,64 @@ export async function renderRecepcion(el, { supabase, currentUser, isObserver })
 
   if (canEdit) {
     el.querySelector('#btn-new-rec').onclick = () => {
-      ;['r-prov','r-trans','r-bultos','r-obs'].forEach(id => { el.querySelector('#'+id).value = '' })
+      el.querySelector('#modal-rec-title') && (el.querySelector('#modal-rec-title').textContent = 'Nueva recepción')
+      ;['r-prov','r-trans','r-bultos','r-obs','r-faltantes'].forEach(id => { el.querySelector('#'+id).value = '' })
       el.querySelector('#r-controla').value = ''
+      el.querySelector('input[name="r-completo"][value="si"]').checked = true
+      el.querySelector('#r-faltantes-wrap').style.display = 'none'
+      fotosNuevas = []
+      renderFotosNuevas()
+      const btnSave = el.querySelector('#save-rec')
+      btnSave.innerHTML = '<i class="ti ti-check"></i> Registrar'
+      btnSave._editMode = false
       modal.classList.add('open')
     }
+
     el.querySelector('#save-rec').onclick = async () => {
+      const btn = el.querySelector('#save-rec')
       const prov = el.querySelector('#r-prov').value.trim()
       const bultos = parseInt(el.querySelector('#r-bultos').value)
       const controla = el.querySelector('#r-controla').value
+      const completo = el.querySelector('input[name="r-completo"]:checked').value === 'si'
+      const faltantes = completo ? null : el.querySelector('#r-faltantes').value.trim()
+      if (!completo && !faltantes) { alert('Describí los faltantes'); return }
       if (!prov || !bultos || !controla) { alert('Completá los campos obligatorios'); return }
-      const now = new Date()
-      await supabase.from('recepciones').insert({
-        proveedor: prov, transporte: el.querySelector('#r-trans').value.trim() || null,
-        bultos, controla, observaciones: el.querySelector('#r-obs').value.trim() || null,
-        fecha: now.toISOString().split('T')[0], hora: now.toTimeString().slice(0,5)
-      })
+
+      const payload = {
+        proveedor: prov,
+        transporte: el.querySelector('#r-trans').value.trim() || null,
+        bultos,
+        controla,
+        observaciones: el.querySelector('#r-obs').value.trim() || null,
+        completo,
+        faltantes: faltantes || null,
+        fotos: fotosNuevas.join(',') || null
+      }
+
+      if (btn._editMode) {
+        await supabase.from('recepciones').update({
+          ...payload,
+          editado_por: currentUser.nombre,
+          editado_at: new Date().toISOString()
+        }).eq('id', btn._editId)
+      } else {
+        const now = new Date()
+        await supabase.from('recepciones').insert({
+          ...payload,
+          fecha: now.toISOString().split('T')[0],
+          hora: now.toTimeString().slice(0,5)
+        })
+      }
+
       modal.classList.remove('open')
+      fotosNuevas = []
+      btn._editMode = false
+      btn.innerHTML = '<i class="ti ti-check"></i> Registrar'
       await load()
     }
   }
 
+  // Sin filtro de fecha por defecto — mostrar todo
   await load()
 }
 
