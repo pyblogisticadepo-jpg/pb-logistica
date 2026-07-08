@@ -3,6 +3,8 @@ let pickingInterval = null
 export async function renderPicking(el, { supabase, currentUser, isObserver }) {
   if (pickingInterval) { clearInterval(pickingInterval); pickingInterval = null }
 
+  const isJefe = currentUser.rol === 'jefe'
+
   el.innerHTML = `
     <div class="page-header">
       <div class="page-title-group"><span class="page-title">Picking</span><span class="page-subtitle" id="picking-count"></span></div>
@@ -151,7 +153,66 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
         <div class="modal-footer">
           <button class="btn-cancel" id="cancel-pk-detalle">Cerrar</button>
           <button class="btn-confirm" style="background:#1a3a1a;color:#52c452;display:none" id="btn-avanzar-paso"><i class="ti ti-arrow-right"></i> <span id="btn-avanzar-label">Completar armado</span></button>
+          <button class="btn-confirm" style="background:#2d1a52;color:#a78bfa;display:none" id="btn-editar-picking"><i class="ti ti-pencil"></i> Editar</button>
           <button class="btn-confirm" style="background:#e05555;display:none" id="btn-cancelar-picking"><i class="ti ti-ban"></i> Cancelar pedido</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="modal-pk-edit">
+      <div class="modal"><div class="modal-top-bar" style="background:#a78bfa"></div>
+        <div class="modal-header">
+          <span class="modal-title" id="pk-edit-title">Editar picking</span>
+          <button class="modal-close" id="close-pk-edit"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div style="background:#1a1030;border:1px solid #2d1a52;padding:10px 14px;border-radius:2px;font-size:12px;color:#a78bfa;margin-bottom:16px;">
+            <i class="ti ti-alert-triangle" style="font-size:11px"></i> Edición de jefe — todos los cambios quedan registrados.
+          </div>
+          <div class="form-row-2">
+            <div><label class="form-label">NP del sistema</label><input class="form-input" id="e-nota" placeholder="Ej: #22478"></div>
+            <div><label class="form-label">Líneas</label><input class="form-input" id="e-lineas" type="number" min="1"></div>
+          </div>
+          <div class="form-row">
+            <label class="form-label">Cliente</label>
+            <input class="form-input" id="e-cliente" placeholder="Nombre del cliente">
+          </div>
+          <div class="form-row-2">
+            <div><label class="form-label">Bultos</label><input class="form-input" id="e-bultos" type="number" min="0"></div>
+            <div><label class="form-label">Estado</label>
+              <select class="form-select" id="e-estado">
+                <option value="preparacion">En preparación</option>
+                <option value="armado">Armado</option>
+                <option value="habilitado">Habilitado</option>
+                <option value="cancelado">Cancelado</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <label class="form-label">Documentación</label>
+            <select class="form-select" id="e-doc">
+              <option value="">— sin documentación —</option>
+              <option value="fac_remito">Factura y Remito</option>
+              <option value="fac_etiqueta">Factura y Etiqueta</option>
+              <option value="remito">Remito solo</option>
+            </select>
+          </div>
+          <div class="form-row-2">
+            <div><label class="form-label">Operario arma</label><select class="form-select" id="e-arma"></select></div>
+            <div><label class="form-label">Operario controla</label><select class="form-select" id="e-controla"></select></div>
+          </div>
+          <div class="form-row-2">
+            <div><label class="form-label">Hora inicio</label><input class="form-input" id="e-inicio" type="time"></div>
+            <div><label class="form-label">Hora fin</label><input class="form-input" id="e-fin" type="time"></div>
+          </div>
+          <div class="form-row-2">
+            <div><label class="form-label">Errores</label><input class="form-input" id="e-errores" type="number" min="0" placeholder="0"></div>
+            <div><label class="form-label">Motivo cancelación</label><input class="form-input" id="e-obs-cancel" placeholder="Solo si cancelado"></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-cancel" id="cancel-pk-edit">Cancelar</button>
+          <button class="btn-confirm" style="background:#a78bfa;color:#1a1030" id="save-pk-edit"><i class="ti ti-check"></i> Guardar cambios</button>
         </div>
       </div>
     </div>
@@ -221,6 +282,7 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
   const m2 = setupModal('modal-pk2', ['close-pk2','cancel-pk2'])
   const m3 = setupModal('modal-pk3', ['close-pk3','cancel-pk3'])
   const mDetalle = setupModal('modal-pk-detalle', ['close-pk-detalle','cancel-pk-detalle'])
+  const mEdit = setupModal('modal-pk-edit', ['close-pk-edit','cancel-pk-edit'])
   const mCancel = setupModal('modal-confirmar-cancel', ['close-confirmar-cancel','cancel-confirmar-cancel'])
 
   el.querySelector('#s2-error-yn').onchange = () => {
@@ -236,6 +298,13 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     mDetalle.classList.remove('open')
     if (p.estado === 'preparacion') openStep2(p)
     else if (p.estado === 'armado') openStep3(p)
+  }
+
+  el.querySelector('#btn-editar-picking').onclick = () => {
+    const p = allPicking.find(x => x.id === editingId)
+    if (!p) return
+    mDetalle.classList.remove('open')
+    abrirEdicion(p)
   }
 
   el.querySelector('#btn-cancelar-picking').onclick = () => {
@@ -256,6 +325,75 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     }).eq('id', cancelingId)
     mCancel.classList.remove('open')
     cancelingId = null
+    await load()
+  }
+
+  function abrirEdicion(p) {
+    el.querySelector('#pk-edit-title').textContent = 'Editar — ' + (p.codigo_interno || p.nota_pedido)
+    el.querySelector('#e-nota').value = p.nota_pedido || ''
+    el.querySelector('#e-lineas').value = p.lineas || ''
+    el.querySelector('#e-cliente').value = p.cliente_nombre || ''
+    el.querySelector('#e-bultos').value = p.bultos || ''
+    el.querySelector('#e-estado').value = p.estado || 'preparacion'
+    el.querySelector('#e-doc').value = p.documentacion || ''
+    el.querySelector('#e-inicio').value = p.hora_inicio || ''
+    el.querySelector('#e-fin').value = p.hora_fin || ''
+    el.querySelector('#e-errores').value = p.error_count || 0
+    el.querySelector('#e-obs-cancel').value = p.observaciones_cancelado || ''
+
+    const ops = profiles.filter(u => ['jefe','logistica','operario'].includes(u.rol))
+    const optsHtml = '<option value="">— ninguno —</option>' + ops.map(o => `<option value="${o.nombre}">${o.nombre}</option>`).join('')
+    el.querySelector('#e-arma').innerHTML = optsHtml
+    el.querySelector('#e-controla').innerHTML = optsHtml
+    el.querySelector('#e-arma').value = p.operario_arma || ''
+    el.querySelector('#e-controla').value = p.operario_controla || ''
+
+    mEdit.classList.add('open')
+  }
+
+  el.querySelector('#save-pk-edit').onclick = async () => {
+    const nota = el.querySelector('#e-nota').value.trim()
+    const lineas = parseInt(el.querySelector('#e-lineas').value)
+    const clienteNombre = el.querySelector('#e-cliente').value.trim()
+    const bultos = parseInt(el.querySelector('#e-bultos').value) || null
+    const estado = el.querySelector('#e-estado').value
+    const doc = el.querySelector('#e-doc').value || null
+    const arma = el.querySelector('#e-arma').value || null
+    const controla = el.querySelector('#e-controla').value || null
+    const inicio = el.querySelector('#e-inicio').value || null
+    const fin = el.querySelector('#e-fin').value || null
+    const errores = parseInt(el.querySelector('#e-errores').value) || 0
+    const obsCancel = el.querySelector('#e-obs-cancel').value.trim() || null
+
+    if (!nota || !lineas || !clienteNombre) { alert('NP, líneas y cliente son obligatorios'); return }
+
+    let timerSecs = null
+    if (inicio && fin) {
+      const [ih, im] = inicio.split(':').map(Number)
+      const [fh, fm] = fin.split(':').map(Number)
+      const secs = (fh * 3600 + fm * 60) - (ih * 3600 + im * 60)
+      if (secs > 0) timerSecs = secs
+    }
+
+    const { error } = await supabase.from('picking').update({
+      nota_pedido: nota,
+      cliente_nombre: clienteNombre,
+      lineas,
+      bultos,
+      estado,
+      documentacion: doc,
+      operario_arma: arma,
+      operario_controla: controla,
+      hora_inicio: inicio,
+      hora_fin: fin,
+      timer_secs: timerSecs,
+      error_count: errores,
+      error_yn: errores > 0,
+      observaciones_cancelado: obsCancel
+    }).eq('id', editingId)
+
+    if (error) { alert('Error: ' + error.message); return }
+    mEdit.classList.remove('open')
     await load()
   }
 
@@ -455,6 +593,9 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
       btnAvanzar.style.display = 'none'
     }
 
+    const btnEditar = el.querySelector('#btn-editar-picking')
+    btnEditar.style.display = isJefe ? 'block' : 'none'
+
     const btnCancel = el.querySelector('#btn-cancelar-picking')
     if (puedeCancel && !yaFinalizado) {
       btnCancel.style.display = 'block'
@@ -540,7 +681,6 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
       return
     }
 
-    // Cliente nuevo: pedir confirmación antes de crear
     datosPendientesPk1 = { clienteNombre, nota, lineas, bultosApertura }
     el.querySelector('#pk-cliente-nuevo-nombre').textContent = clienteNombre
     mClienteNuevo.classList.add('open')
