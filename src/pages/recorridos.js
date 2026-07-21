@@ -84,10 +84,21 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
     </div>
     <div class="tabs">
       <button class="tab-btn active" data-tab="lista">Recorridos del día</button>
+      <button class="tab-btn" data-tab="historial">Historial</button>
       <button class="tab-btn" data-tab="mapa">GPS en tiempo real</button>
     </div>
     <div class="tab-content active" id="tab-lista">
       <div id="rec-list"><div class="loading">Cargando...</div></div>
+    </div>
+    <div class="tab-content" id="tab-historial">
+      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+        <input type="date" class="date-picker-input" id="hist-desde">
+        <input type="date" class="date-picker-input" id="hist-hasta">
+        <select class="filter-select" id="hist-operario"><option value="">Todos los operarios</option></select>
+        <button class="btn-sm primary" id="hist-filtrar"><i class="ti ti-search"></i> Filtrar</button>
+        <button class="btn-sm" id="hist-limpiar"><i class="ti ti-x"></i> Limpiar</button>
+      </div>
+      <div id="hist-list"><div class="loading">Cargando...</div></div>
     </div>
     <div class="tab-content" id="tab-mapa">
       <div id="map-container" style="height:420px;border-radius:2px;overflow:hidden;border:1px solid #1e1e1e;"></div>
@@ -245,11 +256,30 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
           <button class="btn-confirm" id="cerrar-fotos-remito">Listo</button>
         </div>
       </div>
+    </div>
+
+    <div class="modal-overlay" id="modal-hist-detalle">
+      <div class="modal"><div class="modal-top-bar" style="background:#5aadee"></div>
+        <div class="modal-header">
+          <span class="modal-title" id="hist-detalle-title">Detalle recorrido</span>
+          <button class="modal-close" id="close-hist-detalle"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body" id="hist-detalle-body"></div>
+        <div class="modal-footer">
+          <button class="btn-cancel" id="cancel-hist-detalle">Cerrar</button>
+        </div>
+      </div>
     </div>`
 
   function hayModalAbierto() {
     return el.querySelectorAll('.modal-overlay.open').length > 0
   }
+
+  // Modal historial detalle
+  const modalHistDetalle = el.querySelector('#modal-hist-detalle')
+  el.querySelector('#close-hist-detalle').onclick = () => modalHistDetalle.classList.remove('open')
+  el.querySelector('#cancel-hist-detalle').onclick = () => modalHistDetalle.classList.remove('open')
+  modalHistDetalle.onclick = (e) => { if (e.target === modalHistDetalle) modalHistDetalle.classList.remove('open') }
 
   el.querySelectorAll('.tab-btn').forEach(btn => {
     btn.onclick = () => {
@@ -258,8 +288,114 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
       btn.classList.add('active')
       el.querySelector('#tab-' + btn.dataset.tab).classList.add('active')
       if (btn.dataset.tab === 'mapa') initMap()
+      if (btn.dataset.tab === 'historial') loadHistorial()
     }
   })
+
+  // Cargar operarios en filtro historial
+  const { data: profiles } = await supabase.from('profiles').select('nombre').eq('activo', true).in('rol', ['jefe','logistica','operario'])
+  el.querySelector('#hist-operario').innerHTML = '<option value="">Todos los operarios</option>' + (profiles || []).map(p => `<option>${p.nombre}</option>`).join('')
+
+  // Fechas por defecto historial: último mes
+  const today = new Date().toISOString().split('T')[0]
+  const mesAtras = new Date(); mesAtras.setMonth(mesAtras.getMonth() - 1)
+  el.querySelector('#hist-desde').value = mesAtras.toISOString().split('T')[0]
+  el.querySelector('#hist-hasta').value = today
+
+  el.querySelector('#hist-filtrar').onclick = loadHistorial
+  el.querySelector('#hist-limpiar').onclick = () => {
+    el.querySelector('#hist-desde').value = mesAtras.toISOString().split('T')[0]
+    el.querySelector('#hist-hasta').value = today
+    el.querySelector('#hist-operario').value = ''
+    loadHistorial()
+  }
+
+  async function loadHistorial() {
+    const desde = el.querySelector('#hist-desde').value
+    const hasta = el.querySelector('#hist-hasta').value
+    const operario = el.querySelector('#hist-operario').value
+    const histList = el.querySelector('#hist-list')
+    histList.innerHTML = '<div class="loading">Cargando...</div>'
+
+    let q = supabase.from('recorridos').select(`*, recorrido_pedidos(*)`).order('fecha', { ascending: false }).order('created_at', { ascending: false })
+    if (desde) q = q.gte('fecha', desde)
+    if (hasta) q = q.lte('fecha', hasta)
+    if (operario) q = q.eq('operario', operario)
+
+    const { data } = await q
+    const lista = data || []
+
+    if (lista.length === 0) { histList.innerHTML = '<div class="empty-state">Sin recorridos en el período</div>'; return }
+
+    histList.innerHTML = `<table class="data-table">
+      <thead><tr><th>Fecha</th><th>Código</th><th>Operario</th><th>Estado</th><th>Pedidos</th><th>Entregas</th><th>Km</th><th>Vehículo</th><th></th></tr></thead>
+      <tbody>${lista.map(r => {
+        const tot = r.recorrido_pedidos.length
+        const ent = r.recorrido_pedidos.filter(p => p.estado === 'entregado').length
+        const rej = r.recorrido_pedidos.filter(p => p.observaciones).length
+        const km = r.km_salida && r.km_regreso ? r.km_regreso - r.km_salida : null
+        const estBadge = r.estado === 'completado'
+          ? '<span class="badge badge-completado" style="font-size:9px">Completado</span>'
+          : r.estado === 'en-ruta'
+          ? '<span class="badge badge-en-ruta" style="font-size:9px">En ruta</span>'
+          : '<span class="badge badge-pendiente" style="font-size:9px">Pendiente</span>'
+        return `<tr>
+          <td style="font-family:'DM Mono',monospace;color:#888;font-size:11px">${r.fecha || '—'}</td>
+          <td style="font-family:'DM Mono',monospace;color:#5aadee;font-size:11px;font-weight:600">${r.codigo}</td>
+          <td style="color:#ccc">${r.operario}</td>
+          <td>${estBadge}</td>
+          <td style="font-family:'DM Mono',monospace">${tot}</td>
+          <td style="color:${ent === tot && tot > 0 ? '#52c452' : rej > 0 ? '#e05555' : '#888'};font-family:'DM Mono',monospace">${ent}/${tot}${rej > 0 ? ` <span style="color:#e05555;font-size:10px">(${rej} rej.)</span>` : ''}</td>
+          <td style="font-family:'DM Mono',monospace;color:#d4a830">${km ? km + ' km' : '—'}</td>
+          <td style="color:#555;font-size:12px">${r.vehiculo || '—'}</td>
+          <td><button class="btn-sm primary" data-hist-id="${r.id}"><i class="ti ti-eye"></i></button></td>
+        </tr>`
+      }).join('')}
+      </tbody></table>`
+
+    histList.querySelectorAll('[data-hist-id]').forEach(btn => {
+      btn.onclick = () => {
+        const r = lista.find(x => x.id === parseInt(btn.dataset.histId))
+        if (!r) return
+        mostrarHistDetalle(r)
+      }
+    })
+  }
+
+  function mostrarHistDetalle(r) {
+    const ent = r.recorrido_pedidos.filter(p => p.estado === 'entregado').length
+    const tot = r.recorrido_pedidos.length
+    const rej = r.recorrido_pedidos.filter(p => p.observaciones).length
+    const km = r.km_salida && r.km_regreso ? r.km_regreso - r.km_salida : null
+    el.querySelector('#hist-detalle-title').textContent = r.codigo + ' — ' + r.fecha
+    el.querySelector('#hist-detalle-body').innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Operario</div><div style="color:#ccc;font-weight:500">${r.operario}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Vehículo</div><div style="color:#aaa">${r.vehiculo || '—'}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Salida</div><div style="font-family:'DM Mono',monospace;color:#888">${r.hora_salida || '—'}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Km recorridos</div><div style="font-family:'DM Mono',monospace;color:#d4a830;font-size:18px">${km ? km + ' km' : '—'}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Entregas</div><div style="font-family:'DM Mono',monospace;color:#52c452;font-size:18px">${ent}/${tot}</div></div>
+        <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Rechazos</div><div style="font-family:'DM Mono',monospace;color:${rej > 0 ? '#e05555' : '#444'};font-size:18px">${rej}</div></div>
+      </div>
+      <div style="font-size:10px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #1e1e1e">Pedidos del recorrido</div>
+      ${r.recorrido_pedidos.map(p => {
+        const cantFotos = (p.foto_remito || '').split(',').filter(Boolean).length
+        return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #141414;">
+          <div style="width:24px;height:24px;border-radius:50%;background:${p.estado === 'entregado' ? '#0d1f0d' : '#1f0d0d'};border:1px solid ${p.estado === 'entregado' ? '#1a3a1a' : '#3a1a1a'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:${p.estado === 'entregado' ? '#52c452' : '#e05555'};flex-shrink:0">${p.orden}</div>
+          <div style="flex:1">
+            <div style="font-size:13px;color:#ccc;font-weight:500">${p.cliente_nombre}</div>
+            <div style="font-size:11px;color:#555;margin-top:2px">
+              ${p.codigo_interno ? `<span style="font-family:'DM Mono',monospace;color:#5aadee">${p.codigo_interno}</span> · ` : ''}
+              ${p.nota_pedido}${p.hora_entrega ? ' · Entregado: ' + p.hora_entrega : ''}
+            </div>
+            ${p.observaciones ? `<div style="font-size:11px;color:#e05555;margin-top:2px">${p.observaciones}</div>` : ''}
+          </div>
+          ${cantFotos > 0 ? `<a href="${p.foto_remito.split(',')[0]}" target="_blank" style="font-size:11px;color:#4dd4d4;text-decoration:none"><i class="ti ti-camera"></i> ${cantFotos}</a>` : ''}
+          <span style="font-size:10px;color:${p.estado === 'entregado' ? '#52c452' : '#e05555'}">${p.estado === 'entregado' ? '✓' : '✗'}</span>
+        </div>`
+      }).join('')}`
+    modalHistDetalle.classList.add('open')
+  }
 
   let selectedPedidos = []
   let activeRecorridoId = null
@@ -760,9 +896,9 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
           }
         })
       }
-      const { data: profiles } = await supabase.from('profiles').select('nombre,rol').eq('activo', true).in('rol', ['jefe','logistica','operario'])
+      const { data: profilesNew } = await supabase.from('profiles').select('nombre,rol').eq('activo', true).in('rol', ['jefe','logistica','operario'])
       const sel = el.querySelector('#rec-operario')
-      sel.innerHTML = '<option value="">— seleccionar —</option>' + (profiles || []).map(p => `<option value="${p.nombre}">${p.nombre}</option>`).join('')
+      sel.innerHTML = '<option value="">— seleccionar —</option>' + (profilesNew || []).map(p => `<option value="${p.nombre}">${p.nombre}</option>`).join('')
       if (['logistica','operario'].includes(currentUser.rol)) sel.value = currentUser.nombre
       modal.classList.add('open')
     }
