@@ -382,7 +382,6 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
     el.querySelector('#ficha-cliente-title').textContent = clienteNombre
     el.querySelector('#ficha-cliente-body').innerHTML = '<div class="loading">Cargando...</div>'
     modalFicha.classList.add('open')
-
     let cliente = null
     if (clienteId) {
       const { data } = await supabase.from('clientes').select('*').eq('id', clienteId).single()
@@ -391,12 +390,10 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
       const { data } = await supabase.from('clientes').select('*').ilike('nombre', clienteNombre).limit(1).single()
       cliente = data
     }
-
     if (!cliente) {
       el.querySelector('#ficha-cliente-body').innerHTML = '<div class="empty-state">Sin datos del cliente</div>'
       return
     }
-
     el.querySelector('#ficha-cliente-body').innerHTML = `
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
         <div style="grid-column:span 2"><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Cliente</div><div style="color:#ccc;font-weight:600;font-size:15px">${cliente.nombre}</div></div>
@@ -459,19 +456,16 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
       await mostrarFichaCliente(btnFicha.dataset.fichaCliente, btnFicha.dataset.clienteId || null)
       return
     }
-
     const btnFoto = e.target.closest('button[data-fotos-pedido]')
     if (btnFoto) {
       await abrirFotosRemito(parseInt(btnFoto.dataset.fotosPedido))
       return
     }
-
     const btn = e.target.closest('button[data-salida], button[data-regreso], button[data-entregar], button[data-no-entregar]')
     if (!btn) return
-
     if (btn.dataset.salida) {
       activeRecorridoId = parseInt(btn.dataset.salida)
-      const r = currentRecorridos.find(x => x.id === activeRecorridoId)
+      const r = [...currentRecorridos].find(x => x.id === activeRecorridoId)
       if (!r) return
       el.querySelector('#salida-rec-title').textContent = 'Confirmar salida — ' + r.codigo
       el.querySelector('#salida-rec-vehiculo').value = ''
@@ -480,7 +474,6 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
       modalSalida.classList.add('open')
       return
     }
-
     if (btn.dataset.regreso) {
       activeRecorridoId = parseInt(btn.dataset.regreso)
       const r = currentRecorridos.find(x => x.id === activeRecorridoId)
@@ -499,7 +492,6 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
       modalRegreso.classList.add('open')
       return
     }
-
     if (btn.dataset.entregar) {
       const hora = new Date().toTimeString().slice(0,5)
       const { error } = await supabase.from('recorrido_pedidos').update({
@@ -509,7 +501,6 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
       await load()
       return
     }
-
     if (btn.dataset.noEntregar) {
       activePedidoId = parseInt(btn.dataset.noEntregar)
       el.querySelector('#no-entregado-rec-motivo').value = ''
@@ -525,9 +516,15 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
     if (isOperario) query = query.eq('operario', currentUser.nombre)
     const { data } = await query
     currentRecorridos = data || []
-    el.querySelector('#rec-sub').textContent = currentRecorridos.length + ' recorridos'
+
+    let queryHuerfanos = supabase.from('recorridos').select(`*, recorrido_pedidos(*)`).eq('estado', 'pendiente').lt('fecha', today).order('fecha', { ascending: false })
+    if (isOperario) queryHuerfanos = queryHuerfanos.eq('operario', currentUser.nombre)
+    const { data: dataHuerfanos } = await queryHuerfanos
+    const huerfanos = (dataHuerfanos || []).filter(h => !currentRecorridos.find(r => r.id === h.id))
+
+    el.querySelector('#rec-sub').textContent = currentRecorridos.length + ' recorridos' + (huerfanos.length > 0 ? ` · ${huerfanos.length} sin cerrar` : '')
     const list = el.querySelector('#rec-list')
-    if (currentRecorridos.length === 0) { list.innerHTML = '<div class="empty-state">Sin recorridos</div>'; return }
+    if (currentRecorridos.length === 0 && huerfanos.length === 0) { list.innerHTML = '<div class="empty-state">Sin recorridos</div>'; return }
 
     const codigosInternos = [...new Set(currentRecorridos.flatMap(r => r.recorrido_pedidos.map(p => p.codigo_interno).filter(Boolean)))]
     let pickingClienteMap = {}
@@ -545,7 +542,6 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
       const pedidosConDir = r.recorrido_pedidos.filter(p => p.direccion)
       const mapsUrl = pedidosConDir.length > 0 ? generarLinkMaps(pedidosConDir.map(p => ({ dir: p.direccion }))) : null
       const puedeOperar = !isObserver && (canEdit || (isOperario && r.operario === currentUser.nombre))
-
       return `<div style="background:#111;border:1px solid #1e1e1e;padding:16px 18px;margin-bottom:16px;border-radius:2px;">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px">
           <div>
@@ -600,6 +596,31 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
         }).join('')}
       </div>`
     }).join('')
+
+    if (huerfanos.length > 0) {
+      list.innerHTML += `<div style="margin-top:24px">
+        <div style="font-size:10px;letter-spacing:3px;color:#e05555;text-transform:uppercase;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #2a1a1a;display:flex;align-items:center;gap:8px;">
+          <i class="ti ti-alert-triangle" style="font-size:13px"></i> Recorridos sin cerrar de días anteriores
+        </div>
+        ${huerfanos.map(r => {
+          const tot = r.recorrido_pedidos.length
+          const puedeOperar = !isObserver && (canEdit || (isOperario && r.operario === currentUser.nombre))
+          return `<div style="background:#1a0d0d;border:1px solid #3a1a1a;padding:14px 18px;margin-bottom:10px;border-radius:2px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+              <div>
+                <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:#e05555;margin-bottom:4px">${r.codigo}</div>
+                <div style="font-size:12px;color:#555">Fecha: <span style="color:#888">${r.fecha}</span> · Operario: <strong style="color:#888">${r.operario}</strong> · ${tot} pedido${tot !== 1 ? 's' : ''} · <span class="badge badge-pendiente">Pendiente</span></div>
+              </div>
+              ${puedeOperar ? `<button class="btn-sm orange" data-salida="${r.id}"><i class="ti ti-truck-delivery"></i> Confirmar salida</button>` : ''}
+            </div>
+            <div style="font-size:11px;color:#555;margin-top:8px;display:flex;align-items:center;gap:6px;">
+              <i class="ti ti-info-circle" style="font-size:11px;color:#e05555"></i>
+              Este recorrido nunca confirmó la salida. Si los pedidos ya se entregaron, cerrarlo desde SQL. Si no salió, confirmar la salida para activarlo.
+            </div>
+          </div>`
+        }).join('')}
+      </div>`
+    }
   }
 
   async function initMap() {
@@ -669,7 +690,6 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
       optimizarBtn.innerHTML = '<i class="ti ti-route"></i> Optimizar y crear'
       optimizarBtn.disabled = false
       optimizarBtn.dataset.step = ''
-
       const { data: recorridosActivos } = await supabase.from('recorridos').select('id').neq('estado', 'completado')
       const idsActivos = (recorridosActivos || []).map(r => r.id)
       const { data: enRutaActiva } = idsActivos.length > 0
@@ -677,21 +697,17 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
         : { data: [] }
       const codigosEnRutaActiva = new Set((enRutaActiva || []).map(p => p.codigo_interno).filter(Boolean))
       const notasEnRutaActiva = new Set((enRutaActiva || []).map(p => p.nota_pedido).filter(Boolean))
-
       const { data: yaEntregados } = await supabase.from('recorrido_pedidos').select('codigo_interno, nota_pedido').eq('estado', 'entregado')
       const codigosYaEntregados = new Set((yaEntregados || []).map(p => p.codigo_interno).filter(Boolean))
       const notasYaEntregadas = new Set((yaEntregados || []).map(p => p.nota_pedido).filter(Boolean))
-
       const { data: yaRetirados } = await supabase.from('retiras').select('codigo_interno, nota_pedido')
       const codigosYaRetirados = new Set((yaRetirados || []).map(r => r.codigo_interno).filter(Boolean))
       const notasYaRetiradas = new Set((yaRetirados || []).map(r => r.nota_pedido).filter(Boolean))
-
       const { data: pk } = await supabase.from('picking').select('id, nota_pedido, cliente_nombre, cliente_id, codigo_interno').eq('estado', 'habilitado')
       const disponiblesPk = (pk || []).filter(p => {
         if (p.codigo_interno) return !codigosEnRutaActiva.has(p.codigo_interno) && !codigosYaEntregados.has(p.codigo_interno) && !codigosYaRetirados.has(p.codigo_interno)
         return !notasEnRutaActiva.has(p.nota_pedido) && !notasYaEntregadas.has(p.nota_pedido) && !notasYaRetiradas.has(p.nota_pedido)
       })
-
       if (disponiblesPk.length === 0) {
         el.querySelector('#pedidos-disponibles').innerHTML = '<div style="color:#444;font-size:12px;padding:10px">Sin pedidos habilitados disponibles</div>'
       } else {
@@ -744,7 +760,6 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
           }
         })
       }
-
       const { data: profiles } = await supabase.from('profiles').select('nombre,rol').eq('activo', true).in('rol', ['jefe','logistica','operario'])
       const sel = el.querySelector('#rec-operario')
       sel.innerHTML = '<option value="">— seleccionar —</option>' + (profiles || []).map(p => `<option value="${p.nombre}">${p.nombre}</option>`).join('')
@@ -778,7 +793,6 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
         await load()
         return
       }
-
       if (selectedPedidos.length === 0) { alert('Seleccioná al menos un pedido'); return }
       const operario = el.querySelector('#rec-operario').value
       if (!operario) { alert('Asigná un operario'); return }
@@ -789,11 +803,9 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
         return { ...p, coords: coords || { lat: DEPOSITO.lat + Math.random()*0.01, lng: DEPOSITO.lng + Math.random()*0.01 } }
       }))
       pedidosOrdenados = pedidosConCoords.length > 1 ? await optimizeRoute(pedidosConCoords) : pedidosConCoords
-
       const mapsLink = generarLinkMaps(pedidosOrdenados)
       el.querySelector('#maps-link').href = mapsLink
       el.querySelector('#maps-link-wrap').style.display = 'block'
-
       el.querySelector('#ruta-preview').style.display = 'block'
       el.querySelector('#ruta-steps').innerHTML = `
         <div style="padding:8px 12px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:2px;margin-bottom:4px;font-size:12px;color:#444">🏭 Depósito P&B — Punto de partida</div>
