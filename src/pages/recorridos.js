@@ -960,30 +960,52 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
     }
   }
 
-  if (['operario','logistica'].includes(currentUser.rol)) {
-    const startGPS = async () => {
-      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-        navigator.serviceWorker.controller.postMessage({
-          type: 'START_GPS',
-          data: { supabaseUrl: SUPABASE_URL, supabaseKey: SUPABASE_KEY, operario: currentUser.nombre }
-        })
-      } else {
+if (['operario','logistica'].includes(currentUser.rol)) {
+    navigator.serviceWorker.addEventListener('message', async (e) => {
+      if (e.data?.type === 'GET_LOCATION') {
         if (!navigator.geolocation) return
-        const updateGPS = async () => {
-          navigator.geolocation.getCurrentPosition(async pos => {
-            await supabase.from('gps_positions').upsert({
-              operario: currentUser.nombre, lat: pos.coords.latitude, lng: pos.coords.longitude, updated_at: new Date().toISOString()
-            }, { onConflict: 'operario' })
-          }, () => {})
-        }
-        updateGPS()
-        setInterval(updateGPS, 30000)
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            navigator.serviceWorker.controller?.postMessage({
+              type: 'LOCATION_UPDATE',
+              data: { lat: pos.coords.latitude, lng: pos.coords.longitude }
+            })
+          },
+          () => {},
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 15000 }
+        )
       }
+    })
+
+    setInterval(() => {
+      navigator.serviceWorker.controller?.postMessage({ type: 'PING' })
+    }, 20000)
+
+    if (navigator.geolocation) {
+      navigator.geolocation.watchPosition(
+        async (pos) => {
+          await supabase.from('gps_positions').upsert({
+            operario: currentUser.nombre,
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'operario' })
+        },
+        () => {},
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+      )
     }
-    if (navigator.serviceWorker.controller) { startGPS() } else { navigator.serviceWorker.ready.then(startGPS) }
+
+    const startGPS = async () => {
+      navigator.serviceWorker.controller?.postMessage({
+        type: 'START_GPS',
+        data: { supabaseUrl: SUPABASE_URL, supabaseKey: SUPABASE_KEY, operario: currentUser.nombre }
+      })
+    }
+
+    if (navigator.serviceWorker.controller) { startGPS() }
+    else { navigator.serviceWorker.ready.then(startGPS) }
   }
-
   await load()
-
   recListInterval = setInterval(() => { if (!hayModalAbierto()) load() }, 30000)
 }

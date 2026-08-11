@@ -1,74 +1,88 @@
-const CACHE_NAME = 'pyb-logistica-v1'
-const GPS_INTERVAL = 30000
-
-let gpsInterval = null
+const GPS_INTERVAL = 25000
+let gpsTimer = null
 let supabaseUrl = null
 let supabaseKey = null
 let operarioNombre = null
+let watchId = null
 
-self.addEventListener('install', (e) => {
-  self.skipWaiting()
-})
+self.addEventListener('install', () => self.skipWaiting())
+self.addEventListener('activate', (e) => e.waitUntil(clients.claim()))
 
-self.addEventListener('activate', (e) => {
-  e.waitUntil(clients.claim())
-})
-
-self.addEventListener('message', (e) => {
+// Un solo listener de mensajes
+self.addEventListener('message', async (e) => {
   const { type, data } = e.data || {}
 
   if (type === 'START_GPS') {
     supabaseUrl = data.supabaseUrl
     supabaseKey = data.supabaseKey
     operarioNombre = data.operario
-
-    if (gpsInterval) clearInterval(gpsInterval)
-
-    // Enviar GPS inmediatamente y luego cada 30s
-    enviarGPS()
-    gpsInterval = setInterval(enviarGPS, GPS_INTERVAL)
+    iniciarGPS()
+    return
   }
 
   if (type === 'STOP_GPS') {
-    if (gpsInterval) { clearInterval(gpsInterval); gpsInterval = null }
-    operarioNombre = null
+    detenerGPS()
+    return
+  }
+
+  if (type === 'LOCATION_UPDATE') {
+    const { lat, lng } = data || e.data
+    if (lat && lng && operarioNombre) {
+      await subirPosicion(lat, lng)
+    }
+    return
+  }
+
+  if (type === 'PING') {
+    // Mantener SW activo — responder al ping
+    const allClients = await clients.matchAll({ type: 'window', includeUncontrolled: true })
+    allClients.forEach(c => c.postMessage({ type: 'PONG' }))
+    return
   }
 })
 
-async function enviarGPS() {
-  if (!operarioNombre || !supabaseUrl || !supabaseKey) return
-
-  // Pedir ubicación a los clientes activos
-  const allClients = await clients.matchAll({ type: 'window', includeUncontrolled: true })
-  if (allClients.length === 0) return
-
-  // Pedirle la ubicación al primer cliente disponible
-  allClients[0].postMessage({ type: 'GET_LOCATION' })
+function iniciarGPS() {
+  detenerGPS()
+  // Pedir ubicación inmediata
+  pedirUbicacion()
+  // Repetir cada 25s con timer propio
+  gpsTimer = setInterval(() => {
+    pedirUbicacion()
+  }, GPS_INTERVAL)
 }
 
-self.addEventListener('message', async (e) => {
-  if (e.data?.type === 'LOCATION_UPDATE') {
-    const { lat, lng } = e.data
-    if (!lat || !lng || !operarioNombre) return
+function detenerGPS() {
+  if (gpsTimer) { clearInterval(gpsTimer); gpsTimer = null }
+  operarioNombre = null
+}
 
-    try {
-      await fetch(`${supabaseUrl}/rest/v1/gps_positions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': supabaseKey,
-          'Authorization': `Bearer ${supabaseKey}`,
-          'Prefer': 'resolution=merge-duplicates'
-        },
-        body: JSON.stringify({
-          operario: operarioNombre,
-          lat,
-          lng,
-          updated_at: new Date().toISOString()
-        })
-      })
-    } catch (e) {
-      console.error('GPS SW error:', e)
-    }
+async function pedirUbicacion() {
+  if (!operarioNombre) return
+  const allClients = await clients.matchAll({ type: 'window', includeUncontrolled: true })
+  if (allClients.length > 0) {
+    allClients[0].postMessage({ type: 'GET_LOCATION' })
   }
-})
+}
+
+async function subirPosicion(lat, lng) {
+  if (!supabaseUrl || !supabaseKey || !operarioNombre) return
+  try {
+    await fetch(`${supabaseUrl}/rest/v1/gps_positions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': supabaseKey,
+        'Authorization': `Bearer ${supabaseKey}`,
+        'Prefer': 'resolution=merge-duplicates'
+      },
+      body: JSON.stringify({
+        operario: operarioNombre,
+        lat,
+        lng,
+        updated_at: new Date().toISOString()
+      })
+    })
+  } catch (err) {
+    console.error('GPS SW error:', err)
+  }
+}
