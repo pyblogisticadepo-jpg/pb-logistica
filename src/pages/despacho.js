@@ -386,10 +386,9 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       .in('estado', ['preparacion', 'armado'])
       .order('hora_registro', { ascending: false })
 
-    const { data: allPicking } = await supabase
+const { data: allPicking } = await supabase
       .from('picking').select('id, nota_pedido, codigo_interno, cliente_nombre, cliente_id, documentacion')
-      .eq('estado', 'habilitado')
-
+      .eq('estado', 'habilitado').order('id', { ascending: false }).limit(10000)
     const clienteIds = [...new Set((allPicking || []).map(p => p.cliente_id).filter(Boolean))]
     let clientesMap = {}
     if (clienteIds.length > 0) {
