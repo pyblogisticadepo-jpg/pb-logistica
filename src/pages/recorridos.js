@@ -839,7 +839,7 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
       const { data: yaRetirados } = await supabase.from('retiras').select('codigo_interno, nota_pedido')
       const codigosYaRetirados = new Set((yaRetirados || []).map(r => r.codigo_interno).filter(Boolean))
       const notasYaRetiradas = new Set((yaRetirados || []).map(r => r.nota_pedido).filter(Boolean))
-      const { data: pk } = await supabase.from('picking').select('id, nota_pedido, cliente_nombre, cliente_id, codigo_interno').eq('estado', 'habilitado')
+      const { data: pk } = await supabase.from('picking').select('id, nota_pedido, cliente_nombre, cliente_id, codigo_interno').eq('estado', 'habilitado').order('id', { ascending: false }).limit(10000)
       const disponiblesPk = (pk || []).filter(p => {
         if (p.codigo_interno) return !codigosEnRutaActiva.has(p.codigo_interno) && !codigosYaEntregados.has(p.codigo_interno) && !codigosYaRetirados.has(p.codigo_interno)
         return !notasEnRutaActiva.has(p.nota_pedido) && !notasYaEntregadas.has(p.nota_pedido) && !notasYaRetiradas.has(p.nota_pedido)
