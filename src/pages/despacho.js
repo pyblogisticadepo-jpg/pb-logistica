@@ -427,7 +427,7 @@ const { data: allPicking } = await supabase
       } else if (tipo === 'externo' && idsRetiraDeposito.has(cliente.transporte_id)) {
         retirosPendientes.push({ ...p, _label: `Retira ${transportesRetiraMap[cliente.transporte_id] || 'transporte'}`, _color: '#d4a830', _border: '#2c2400' })
       } else if (tipo === 'pyb' || tipo === 'externo') {
-        entregasPendientes.push({ ...p, _label: tipo === 'pyb' ? 'Entrega P&B' : 'Transp. ext.', _color: '#a78bfa', _border: '#2d1a52' })
+        entregasPendientes.push({ ...p, _label: tipo === 'pyb' ? 'Entrega P&B' : (transportesMap[cliente.transporte_id]?.nombre || 'Transp. ext.'), _color: '#a78bfa', _border: '#2d1a52' })
       }
     })
 
