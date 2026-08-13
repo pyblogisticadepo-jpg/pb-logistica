@@ -2,7 +2,7 @@ let despachoInterval = null
 
 async function subirFotoRemito(supabase, file, codigoRef) {
   const ext = file.name.split('.').pop() || 'jpg'
-  const nombreArchivo = `${codigoRef}_${Date.now()}.${ext}`
+  const nombreArchivo = ${codigoRef}_${Date.now()}.${ext}
   const { error } = await supabase.storage.from('Remitos').upload(nombreArchivo, file)
   if (error) return null
   const { data } = supabase.storage.from('Remitos').getPublicUrl(nombreArchivo)
@@ -169,8 +169,8 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     if (r && km && r.km_salida) {
       const diff = km - r.km_salida
       preview.innerHTML = diff > 0
-        ? `<span style="color:#52c452">Km recorridos: ${diff} km</span>`
-        : `<span style="color:#e05555">El km de regreso debe ser mayor al de salida</span>`
+        ? <span style="color:#52c452">Km recorridos: ${diff} km</span>
+        : <span style="color:#e05555">El km de regreso debe ser mayor al de salida</span>
     }
   }
 
@@ -305,7 +305,7 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
         <strong style="color:#ccc">${r.codigo}</strong><br>
         Operario: ${r.operario} · Vehículo: ${r.vehiculo || '—'}<br>
         Salida: ${r.hora_salida || '—'} · Km salida: ${r.km_salida || '—'}
-        ${rechazados > 0 ? `<br><span style="color:#e05555;font-size:12px"><i class="ti ti-alert-circle"></i> ${rechazados} pedido${rechazados > 1 ? 's' : ''} no entregado${rechazados > 1 ? 's' : ''} — volverán a entregas pendientes</span>` : ''}`
+        ${rechazados > 0 ? <br><span style="color:#e05555;font-size:12px"><i class="ti ti-alert-circle"></i> ${rechazados} pedido${rechazados > 1 ? 's' : ''} no entregado${rechazados > 1 ? 's' : ''} — volverán a entregas pendientes</span> : ''}`
       el.querySelector('#regreso-km').value = ''
       el.querySelector('#km-diff-preview').innerHTML = ''
       el.querySelector('#regreso-km-wrap').style.display = esPersonal ? 'none' : 'block'
@@ -375,8 +375,8 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     await limpiarRechazadosHuerfanos()
 
     const { data: recData } = await supabase
-      .from('recorridos').select(`*, recorrido_pedidos(*)`)
-      .or(`fecha.eq.${today},estado.eq.en-ruta`)
+      .from('recorridos').select(*, recorrido_pedidos(*))
+      .or(fecha.eq.${today},estado.eq.en-ruta)
       .order('created_at', { ascending: false })
     currentRecorridos = recData || []
 
@@ -385,188 +385,3 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
       .select('id, nota_pedido, codigo_interno, cliente_nombre, estado, lineas')
       .in('estado', ['preparacion', 'armado'])
       .order('hora_registro', { ascending: false })
-
-const { data: allPicking } = await supabase
-      .from('picking').select('id, nota_pedido, codigo_interno, cliente_nombre, cliente_id, documentacion')
-      .eq('estado', 'habilitado').order('id', { ascending: false }).limit(10000)
-    const clienteIds = [...new Set((allPicking || []).map(p => p.cliente_id).filter(Boolean))]
-    let clientesMap = {}
-    if (clienteIds.length > 0) {
-      const { data: clientes } = await supabase.from('clientes').select('id, transporte_tipo, transporte_id').in('id', clienteIds)
-      ;(clientes || []).forEach(c => { clientesMap[c.id] = c })
-    }
-
-    const { data: transportesRetira } = await supabase.from('transportes').select('id, nombre').eq('retira_deposito', true)
-    const idsRetiraDeposito = new Set((transportesRetira || []).map(t => t.id))
-    const transportesRetiraMap = {}
-    ;(transportesRetira || []).forEach(t => { transportesRetiraMap[t.id] = t.nombre })
-
-    const { data: todosEntregados } = await supabase.from('recorrido_pedidos').select('nota_pedido, codigo_interno').eq('estado', 'entregado')
-    const codigosYaEntregados = new Set((todosEntregados || []).map(p => p.codigo_interno).filter(Boolean))
-    const notasYaEntregadas = new Set((todosEntregados || []).map(p => p.nota_pedido).filter(Boolean))
-
-    const notasEnRecorridoActivo = currentRecorridos.filter(r => r.estado !== 'completado').flatMap(r => r.recorrido_pedidos.map(p => p.nota_pedido))
-    const codigosEnRecorridoActivo = new Set(currentRecorridos.filter(r => r.estado !== 'completado').flatMap(r => r.recorrido_pedidos.map(p => p.codigo_interno).filter(Boolean)))
-
-    const { data: todasRetiras } = await supabase.from('retiras').select('nota_pedido, codigo_interno')
-    const codigosYaRetirados = new Set((todasRetiras || []).map(r => r.codigo_interno).filter(Boolean))
-    const notasYaRetiradas = new Set((todasRetiras || []).map(r => r.nota_pedido).filter(Boolean))
-
-    const retirosPendientes = []
-    const entregasPendientes = []
-
-    ;(allPicking || []).forEach(p => {
-      if (p.codigo_interno ? codigosYaEntregados.has(p.codigo_interno) : notasYaEntregadas.has(p.nota_pedido)) return
-      if (p.codigo_interno ? codigosEnRecorridoActivo.has(p.codigo_interno) : notasEnRecorridoActivo.includes(p.nota_pedido)) return
-      if (p.codigo_interno ? codigosYaRetirados.has(p.codigo_interno) : notasYaRetiradas.has(p.nota_pedido)) return
-      const cliente = clientesMap[p.cliente_id]
-      if (!cliente) return
-      const tipo = cliente.transporte_tipo
-      if (tipo === 'retira') {
-        retirosPendientes.push({ ...p, _label: 'Retira cliente', _color: '#4dd4d4', _border: '#1a3636' })
-      } else if (tipo === 'externo' && idsRetiraDeposito.has(cliente.transporte_id)) {
-        retirosPendientes.push({ ...p, _label: `Retira ${transportesRetiraMap[cliente.transporte_id] || 'transporte'}`, _color: '#d4a830', _border: '#2c2400' })
-      } else if (tipo === 'pyb' || tipo === 'externo') {
-        entregasPendientes.push({ ...p, _label: tipo === 'pyb' ? 'Entrega P&B' : (transportesMap[cliente.transporte_id]?.nombre || 'Transp. ext.'), _color: '#a78bfa', _border: '#2d1a52' })
-      }
-    })
-
-    const { data: retirasHoy } = await supabase.from('retiras').select('*').eq('fecha', today)
-    const despachadosRetiro = retirasHoy || []
-
-    const content = el.querySelector('#despacho-content')
-    const totalPendientes = retirosPendientes.length + entregasPendientes.length
-    el.querySelector('#despacho-sub').textContent = `${currentRecorridos.length} recorrido${currentRecorridos.length !== 1 ? 's' : ''} · ${totalPendientes} pendiente${totalPendientes !== 1 ? 's' : ''}`
-
-    let html = ''
-
-    if (sinDocs && sinDocs.length > 0) {
-      html += `<div class="section-label" style="margin-top:0">Sin documentos</div>`
-      html += sinDocs.map(p => {
-        const estadoLabel = p.estado === 'preparacion'
-          ? '<span class="badge badge-preparacion">En preparación</span>'
-          : '<span class="badge badge-armado">Armado</span>'
-        const faltaLabel = p.estado === 'preparacion'
-          ? 'Falta completar armado y documentos'
-          : 'Falta documentación para habilitar'
-        return `<div style="background:#111;border:1px solid #1a1a1a;padding:12px 16px;margin-bottom:8px;border-radius:2px;display:flex;align-items:center;gap:12px;">
-          <div style="flex:1">
-            <div style="font-size:13px;color:#ccc;font-weight:500">${p.cliente_nombre} ${estadoLabel}</div>
-            <div style="font-size:11px;color:#555;margin-top:2px">
-              ${p.codigo_interno ? `<span style="font-family:'DM Mono',monospace;color:#5aadee">${p.codigo_interno}</span> · ` : ''}
-              ${p.nota_pedido} · ${p.lineas} líneas
-            </div>
-          </div>
-          <span style="font-size:10px;color:#555;text-align:right;line-height:1.5">${faltaLabel}</span>
-        </div>`
-      }).join('')
-    }
-
-    if (entregasPendientes.length > 0) {
-      html += `<div class="section-label" style="margin-top:${sinDocs?.length > 0 ? '24px' : '0'}">Entregas pendientes de recorrido</div>`
-      html += entregasPendientes.map(p => `
-        <div style="background:#111;border:1px solid ${p._border};padding:14px 16px;margin-bottom:8px;border-radius:2px;display:flex;align-items:center;gap:12px;">
-          <div style="flex:1">
-            <div style="font-size:13px;color:#ccc;font-weight:500">${p.cliente_nombre} <span style="font-size:10px;color:${p._color};margin-left:6px">${p._label}</span></div>
-            <div style="font-size:11px;color:#555;margin-top:2px">
-              ${p.codigo_interno ? `<span style="font-family:'DM Mono',monospace;color:#5aadee">${p.codigo_interno}</span> · ` : ''}
-              ${p.nota_pedido} · Doc: ${p.documentacion === 'fac_remito' ? 'Fac. y Remito' : p.documentacion === 'fac_etiqueta' ? 'Fac. y Etiqueta' : p.documentacion || '—'}
-            </div>
-          </div>
-          <span style="font-size:10px;color:#555;letter-spacing:1px">Sin recorrido</span>
-        </div>`).join('')
-    }
-
-    if (retirosPendientes.length > 0) {
-      html += `<div class="section-label" style="margin-top:${entregasPendientes.length > 0 || sinDocs?.length > 0 ? '24px' : '0'}">Retiros pendientes</div>`
-      html += retirosPendientes.map(p => `
-        <div style="background:#111;border:1px solid ${p._border};padding:14px 16px;margin-bottom:8px;border-radius:2px;display:flex;align-items:center;gap:12px;">
-          <div style="flex:1">
-            <div style="font-size:13px;color:#ccc;font-weight:500">${p.cliente_nombre} <span style="font-size:10px;color:${p._color};margin-left:6px">${p._label}</span></div>
-            <div style="font-size:11px;color:#555;margin-top:2px">
-              ${p.codigo_interno ? `<span style="font-family:'DM Mono',monospace;color:#5aadee">${p.codigo_interno}</span> · ` : ''}
-              ${p.nota_pedido} · Doc: ${p.documentacion === 'fac_remito' ? 'Fac. y Remito' : p.documentacion === 'fac_etiqueta' ? 'Fac. y Etiqueta' : p.documentacion || '—'}
-            </div>
-          </div>
-          ${canEdit ? `<button class="btn-sm green" data-marcar-retiro="${p.id}"><i class="ti ti-check"></i> Marcar retirado</button>` : ''}
-        </div>`).join('')
-    }
-
-    if (despachadosRetiro.length > 0) {
-      html += `<div class="section-label" style="margin-top:${retirosPendientes.length > 0 || entregasPendientes.length > 0 || sinDocs?.length > 0 ? '24px' : '0'}">Retirados hoy</div>`
-      html += despachadosRetiro.map(r => {
-        const cantFotos = (r.foto_remito || '').split(',').filter(Boolean).length
-        return `
-        <div style="background:#0d1e0d;border:1px solid #1a361a;padding:12px 16px;margin-bottom:8px;border-radius:2px;display:flex;align-items:center;gap:12px;opacity:.8">
-          <div style="flex:1">
-            <div style="font-size:13px;color:#52c452;font-weight:500">${r.cliente_nombre}</div>
-            <div style="font-size:11px;color:#2a5a2a;margin-top:2px">${r.codigo_interno || r.nota_pedido}${r.transporte_nombre ? ' · ' + r.transporte_nombre : ''} · Retirado: ${r.hora_retiro || '—'}</div>
-          </div>
-          ${cantFotos > 0 ? `<a href="${r.foto_remito.split(',')[0]}" target="_blank" download style="display:flex;align-items:center;gap:4px;padding:5px 10px;background:#0a1a1a;border:1px solid #1a3a3a;border-radius:2px;color:#4dd4d4;font-size:10px;text-decoration:none"><i class="ti ti-camera"></i> ${cantFotos}</a>` : ''}
-          <span class="badge badge-ok" style="font-size:9px">✓ Retirado</span>
-        </div>`
-      }).join('')
-    }
-
-    if (currentRecorridos.length > 0) {
-      const hasAbove = sinDocs?.length > 0 || entregasPendientes.length > 0 || retirosPendientes.length > 0 || despachadosRetiro.length > 0
-      html += `<div class="section-label" style="margin-top:${hasAbove ? '24px' : '0'}">Recorridos de hoy</div>`
-      html += currentRecorridos.map(r => {
-        const ent = r.recorrido_pedidos.filter(p => p.estado === 'entregado').length
-        const tot = r.recorrido_pedidos.length
-        const rechazados = r.recorrido_pedidos.filter(p => p.estado === 'pendiente' && p.observaciones).length
-        const listoParaRegresar = r.estado === 'en-ruta' && (ent + rechazados === tot) && tot > 0
-        const estBadge = r.estado === 'en-ruta' ? '<span class="badge badge-en-ruta">En ruta</span>' : r.estado === 'completado' ? '<span class="badge badge-completado">Completado</span>' : '<span class="badge badge-pendiente">Pendiente</span>'
-        return `<div style="background:#111;border:1px solid #1e1e1e;padding:16px 18px;margin-bottom:16px;border-radius:2px;">
-          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px">
-            <div>
-              <div style="font-family:'DM Mono',monospace;font-size:14px;font-weight:600;color:#fff;margin-bottom:4px">${r.codigo}</div>
-              <div style="font-size:12px;color:#555">${estBadge} · Operario: <strong style="color:#888">${r.operario}</strong> · ${ent}/${tot} entregas${rechazados > 0 ? ` · <span style="color:#e05555">${rechazados} rechazado${rechazados > 1 ? 's' : ''}</span>` : ''}${r.vehiculo ? ' · ' + r.vehiculo : ''}</div>
-              <div style="font-size:11px;color:#444;margin-top:3px">Km salida: <span style="font-family:'DM Mono',monospace">${r.km_salida || '—'}</span> · Km regreso: <span style="font-family:'DM Mono',monospace">${r.km_regreso || '—'}</span>${r.km_salida && r.km_regreso ? ' · <span style="color:#52c452;font-family:\'DM Mono\',monospace">' + (r.km_regreso - r.km_salida) + ' km</span>' : ''}${r.hora_salida ? ' · Salida: ' + r.hora_salida : ''}</div>
-            </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-              ${canEdit && r.estado === 'pendiente' ? `<button class="btn-sm orange" data-salida="${r.id}"><i class="ti ti-truck-delivery"></i> Confirmar salida</button>` : ''}
-              ${canEdit && listoParaRegresar ? `<button class="btn-sm green" data-regreso="${r.id}"><i class="ti ti-home"></i> Confirmar regreso</button>` : ''}
-            </div>
-          </div>
-          ${tot === 0 ? '<div style="color:#444;font-size:12px;padding:8px 0">Sin pedidos en este recorrido</div>' :
-          r.recorrido_pedidos.map(p => {
-            const cantFotosP = (p.foto_remito || '').split(',').filter(Boolean).length
-            return `
-            <div class="pedido-card ${p.estado === 'entregado' ? 'entregado' : p.observaciones ? 'rechazado' : ''}">
-              <div class="pedido-card-header">
-                <div class="pedido-orden ${p.tipo || 'pyb'}">${p.orden}</div>
-                <div style="flex:1">
-                  <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:2px">${p.cliente_nombre} ${cantFotosP > 0 ? `<a href="${p.foto_remito.split(',')[0]}" target="_blank" download style="font-size:9px;color:#4dd4d4;text-decoration:none;margin-left:6px"><i class="ti ti-camera"></i> ${cantFotosP}</a>` : ''}</div>
-                  <div style="font-size:11px;color:#555">
-                    ${p.codigo_interno ? `<span style="font-family:'DM Mono',monospace;color:#5aadee;font-size:10px">${p.codigo_interno}</span> · ` : ''}
-                    <i class="ti ti-map-pin" style="font-size:10px"></i> ${p.direccion || '—'} · ${p.nota_pedido}${p.tipo === 'externo' ? ' · ' + (p.transporte_nombre || '') : ''}
-                  </div>
-                  ${p.observaciones ? `<div style="font-size:11px;color:#e05555;margin-top:3px"><i class="ti ti-alert-circle" style="font-size:10px"></i> ${p.observaciones}</div>` : ''}
-                </div>
-                <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
-                  ${canEdit && p.estado === 'pendiente' && !p.observaciones && r.estado === 'en-ruta' ? `
-                    <button class="btn-sm green" data-entregar="${p.id}"><i class="ti ti-check"></i> Entregado</button>
-                    <button class="btn-sm" style="border-color:#3a1a1a;color:#e05555" data-no-entregar="${p.id}"><i class="ti ti-x"></i> No entregado</button>
-                  ` : p.estado === 'entregado' ? `<span class="badge badge-ok" style="font-size:9px">✓ ${p.hora_entrega || ''}</span>`
-                    : p.observaciones ? `<span class="badge" style="background:#2a0a0a;color:#e05555;font-size:9px">✗ Rechazado</span>` : ''}
-                </div>
-              </div>
-              ${p.estado === 'entregado' ? `<div class="pedido-entregado-info"><span style="color:#52c452;font-family:'DM Mono',monospace;font-size:11px"><i class="ti ti-clock" style="font-size:10px"></i> Entregado ${p.hora_entrega || ''}</span></div>` : ''}
-            </div>`
-          }).join('')}
-        </div>`
-      }).join('')
-    }
-
-    if (currentRecorridos.length === 0 && retirosPendientes.length === 0 && entregasPendientes.length === 0 && despachadosRetiro.length === 0 && (!sinDocs || sinDocs.length === 0)) {
-      html = '<div class="empty-state" style="padding:60px">Sin actividad de despacho hoy</div>'
-    }
-
-    content.innerHTML = html
-  }
-
-  await load()
-
-  despachoInterval = setInterval(load, 30000)
-}
