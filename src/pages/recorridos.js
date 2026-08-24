@@ -72,6 +72,7 @@ async function subirFotoRemito(supabase, file, codigoOref) {
 
 export async function renderRecorridos(el, { supabase, currentUser, isObserver }) {
   const canEdit = ['jefe','logistica'].includes(currentUser.rol)
+  const isJefe = currentUser.rol === 'jefe'
   const isOperario = currentUser.rol === 'operario'
 
   if (mapInterval) { clearInterval(mapInterval); mapInterval = null }
@@ -258,6 +259,70 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
       </div>
     </div>
 
+    <div class="modal-overlay" id="modal-cerrar-huerfano">
+      <div class="modal"><div class="modal-top-bar" style="background:#e05555"></div>
+        <div class="modal-header">
+          <span class="modal-title" id="cerrar-huerfano-title">Cerrar recorrido</span>
+          <button class="modal-close" id="close-cerrar-huerfano"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div style="background:#1f0d0d;border:1px solid #3a1a1a;padding:12px 16px;border-radius:2px;font-size:12px;color:#8a3a3a;margin-bottom:20px;">
+            Este recorrido nunca confirmó la salida. Completá los datos para cerrarlo correctamente.
+          </div>
+          <div class="form-row">
+            <label class="form-label">Vehículo <span class="req">*</span></label>
+            <select class="form-select" id="huerfano-vehiculo">
+              <option value="">— seleccionar —</option>
+              <option>Berlingo blanca</option>
+              <option>Kangoo blanca</option>
+              <option>Sprinter verde</option>
+              <option>Saveiro</option>
+              <option value="vehiculo-personal">🚗 Vehículo personal</option>
+            </select>
+          </div>
+          <div class="form-row" id="huerfano-km-sal-wrap">
+            <label class="form-label">Km de salida</label>
+            <input class="form-input" id="huerfano-km-sal" type="number" placeholder="Ej: 45820">
+          </div>
+          <div class="form-row">
+            <label class="form-label">Hora de entrega <span class="req">*</span></label>
+            <input class="form-input" id="huerfano-hora-entrega" type="time">
+          </div>
+          <div class="form-row" id="huerfano-km-reg-wrap">
+            <label class="form-label">Km de regreso</label>
+            <input class="form-input" id="huerfano-km-reg" type="number" placeholder="Ej: 45951">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-cancel" id="cancel-cerrar-huerfano">Cancelar</button>
+          <button class="btn-confirm" style="background:#e05555" id="save-cerrar-huerfano"><i class="ti ti-check"></i> Cerrar recorrido</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="modal-editar-rec">
+      <div class="modal"><div class="modal-top-bar" style="background:#d4a830"></div>
+        <div class="modal-header">
+          <span class="modal-title" id="editar-rec-title">Editar recorrido</span>
+          <button class="modal-close" id="close-editar-rec"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div class="form-row">
+            <label class="form-label">Operario <span class="req">*</span></label>
+            <select class="form-select" id="editar-rec-operario"></select>
+          </div>
+          <div class="form-row">
+            <label class="form-label">Fecha <span class="req">*</span></label>
+            <input class="form-input" id="editar-rec-fecha" type="date">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-cancel" id="cancel-editar-rec">Cancelar</button>
+          <button class="btn-confirm" id="save-editar-rec"><i class="ti ti-check"></i> Guardar cambios</button>
+        </div>
+      </div>
+    </div>
+
     <div class="modal-overlay" id="modal-hist-detalle">
       <div class="modal"><div class="modal-top-bar" style="background:#5aadee"></div>
         <div class="modal-header">
@@ -281,6 +346,50 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
   el.querySelector('#cancel-hist-detalle').onclick = () => modalHistDetalle.classList.remove('open')
   modalHistDetalle.onclick = (e) => { if (e.target === modalHistDetalle) modalHistDetalle.classList.remove('open') }
 
+  // Modal cerrar huérfano
+  const modalCerrarHuerfano = el.querySelector('#modal-cerrar-huerfano')
+  let huerfanoActivoId = null
+  el.querySelector('#close-cerrar-huerfano').onclick = () => modalCerrarHuerfano.classList.remove('open')
+  el.querySelector('#cancel-cerrar-huerfano').onclick = () => modalCerrarHuerfano.classList.remove('open')
+  modalCerrarHuerfano.onclick = (e) => { if (e.target === modalCerrarHuerfano) modalCerrarHuerfano.classList.remove('open') }
+  el.querySelector('#huerfano-vehiculo').onchange = () => {
+    const esPersonal = el.querySelector('#huerfano-vehiculo').value === 'vehiculo-personal'
+    el.querySelector('#huerfano-km-sal-wrap').style.display = esPersonal ? 'none' : 'block'
+    el.querySelector('#huerfano-km-reg-wrap').style.display = esPersonal ? 'none' : 'block'
+  }
+  el.querySelector('#save-cerrar-huerfano').onclick = async () => {
+    const vehiculo = el.querySelector('#huerfano-vehiculo').value
+    if (!vehiculo) { alert('Seleccioná un vehículo'); return }
+    const horaEntrega = el.querySelector('#huerfano-hora-entrega').value
+    if (!horaEntrega) { alert('Ingresá la hora de entrega'); return }
+    const esPersonal = vehiculo === 'vehiculo-personal'
+    const kmSal = esPersonal ? null : parseInt(el.querySelector('#huerfano-km-sal').value) || null
+    const kmReg = esPersonal ? null : parseInt(el.querySelector('#huerfano-km-reg').value) || null
+    const vehiculoLabel = esPersonal ? 'Vehículo personal' : vehiculo
+    await supabase.from('recorrido_pedidos').update({ estado: 'entregado', hora_entrega: horaEntrega }).eq('recorrido_id', huerfanoActivoId)
+    await supabase.from('recorridos').update({
+      estado: 'completado', vehiculo: vehiculoLabel, km_salida: kmSal, km_regreso: kmReg, hora_salida: horaEntrega
+    }).eq('id', huerfanoActivoId)
+    modalCerrarHuerfano.classList.remove('open')
+    await load()
+  }
+
+  // Modal editar recorrido
+  const modalEditarRec = el.querySelector('#modal-editar-rec')
+  let editarRecId = null
+  el.querySelector('#close-editar-rec').onclick = () => modalEditarRec.classList.remove('open')
+  el.querySelector('#cancel-editar-rec').onclick = () => modalEditarRec.classList.remove('open')
+  modalEditarRec.onclick = (e) => { if (e.target === modalEditarRec) modalEditarRec.classList.remove('open') }
+  el.querySelector('#save-editar-rec').onclick = async () => {
+    const operario = el.querySelector('#editar-rec-operario').value
+    const fecha = el.querySelector('#editar-rec-fecha').value
+    if (!operario || !fecha) { alert('Completá operario y fecha'); return }
+    const { error } = await supabase.from('recorridos').update({ operario, fecha }).eq('id', editarRecId)
+    if (error) { alert('Error: ' + error.message); return }
+    modalEditarRec.classList.remove('open')
+    await load()
+  }
+
   el.querySelectorAll('.tab-btn').forEach(btn => {
     btn.onclick = () => {
       el.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'))
@@ -292,16 +401,13 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
     }
   })
 
-  // Cargar operarios en filtro historial
   const { data: profiles } = await supabase.from('profiles').select('nombre').eq('activo', true).in('rol', ['jefe','logistica','operario'])
   el.querySelector('#hist-operario').innerHTML = '<option value="">Todos los operarios</option>' + (profiles || []).map(p => `<option>${p.nombre}</option>`).join('')
 
-  // Fechas por defecto historial: último mes
   const today = new Date().toISOString().split('T')[0]
   const mesAtras = new Date(); mesAtras.setMonth(mesAtras.getMonth() - 1)
   el.querySelector('#hist-desde').value = mesAtras.toISOString().split('T')[0]
   el.querySelector('#hist-hasta').value = today
-
   el.querySelector('#hist-filtrar').onclick = loadHistorial
   el.querySelector('#hist-limpiar').onclick = () => {
     el.querySelector('#hist-desde').value = mesAtras.toISOString().split('T')[0]
@@ -316,17 +422,13 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
     const operario = el.querySelector('#hist-operario').value
     const histList = el.querySelector('#hist-list')
     histList.innerHTML = '<div class="loading">Cargando...</div>'
-
     let q = supabase.from('recorridos').select(`*, recorrido_pedidos(*)`).order('fecha', { ascending: false }).order('created_at', { ascending: false })
     if (desde) q = q.gte('fecha', desde)
     if (hasta) q = q.lte('fecha', hasta)
     if (operario) q = q.eq('operario', operario)
-
     const { data } = await q
     const lista = data || []
-
     if (lista.length === 0) { histList.innerHTML = '<div class="empty-state">Sin recorridos en el período</div>'; return }
-
     histList.innerHTML = `<table class="data-table">
       <thead><tr><th>Fecha</th><th>Código</th><th>Operario</th><th>Estado</th><th>Pedidos</th><th>Entregas</th><th>Km</th><th>Vehículo</th><th></th></tr></thead>
       <tbody>${lista.map(r => {
@@ -352,7 +454,6 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
         </tr>`
       }).join('')}
       </tbody></table>`
-
     histList.querySelectorAll('[data-hist-id]').forEach(btn => {
       btn.onclick = () => {
         const r = lista.find(x => x.id === parseInt(btn.dataset.histId))
@@ -597,6 +698,28 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
       await abrirFotosRemito(parseInt(btnFoto.dataset.fotosPedido))
       return
     }
+    const btnCerrarHuerfano = e.target.closest('button[data-cerrar-huerfano]')
+    if (btnCerrarHuerfano) {
+      huerfanoActivoId = parseInt(btnCerrarHuerfano.dataset.cerrarHuerfano)
+      el.querySelector('#cerrar-huerfano-title').textContent = 'Cerrar — ' + btnCerrarHuerfano.dataset.codigo
+      el.querySelector('#huerfano-vehiculo').value = ''
+      el.querySelector('#huerfano-hora-entrega').value = ''
+      el.querySelector('#huerfano-km-sal').value = ''
+      el.querySelector('#huerfano-km-reg').value = ''
+      el.querySelector('#huerfano-km-sal-wrap').style.display = 'block'
+      el.querySelector('#huerfano-km-reg-wrap').style.display = 'block'
+      modalCerrarHuerfano.classList.add('open')
+      return
+    }
+    const btnEditarRec = e.target.closest('button[data-editar-rec]')
+    if (btnEditarRec) {
+      editarRecId = parseInt(btnEditarRec.dataset.editarRec)
+      el.querySelector('#editar-rec-fecha').value = btnEditarRec.dataset.fecha || today
+      const { data: profilesEdit } = await supabase.from('profiles').select('nombre').eq('activo', true).in('rol', ['jefe','logistica','operario'])
+      el.querySelector('#editar-rec-operario').innerHTML = '<option value="">— seleccionar —</option>' + (profilesEdit || []).map(p => `<option value="${p.nombre}" ${p.nombre === btnEditarRec.dataset.operario ? 'selected' : ''}>${p.nombre}</option>`).join('')
+      modalEditarRec.classList.add('open')
+      return
+    }
     const btn = e.target.closest('button[data-salida], button[data-regreso], button[data-entregar], button[data-no-entregar]')
     if (!btn) return
     if (btn.dataset.salida) {
@@ -689,6 +812,7 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
             ${mapsUrl ? `<a href="${mapsUrl}" target="_blank" style="display:flex;align-items:center;gap:4px;padding:6px 10px;background:#0d1f0d;border:1px solid #1a3a1a;border-radius:2px;color:#52c452;font-size:11px;text-decoration:none;white-space:nowrap"><i class="ti ti-map-2"></i> Maps</a>` : ''}
             ${puedeOperar && r.estado === 'pendiente' ? `<button class="btn-sm orange" data-salida="${r.id}"><i class="ti ti-truck-delivery"></i> Confirmar salida</button>` : ''}
             ${puedeOperar && listoParaRegresar ? `<button class="btn-sm green" data-regreso="${r.id}"><i class="ti ti-home"></i> Confirmar regreso</button>` : ''}
+            ${isJefe ? `<button class="btn-sm" style="border-color:#3a3000;color:#d4a830" data-editar-rec="${r.id}" data-operario="${r.operario}" data-fecha="${r.fecha}"><i class="ti ti-pencil"></i></button>` : ''}
           </div>
         </div>
         ${r.estado === 'pendiente' && puedeOperar ? `
@@ -747,11 +871,15 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
                 <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:#e05555;margin-bottom:4px">${r.codigo}</div>
                 <div style="font-size:12px;color:#555">Fecha: <span style="color:#888">${r.fecha}</span> · Operario: <strong style="color:#888">${r.operario}</strong> · ${tot} pedido${tot !== 1 ? 's' : ''} · <span class="badge badge-pendiente">Pendiente</span></div>
               </div>
-              ${puedeOperar ? `<button class="btn-sm orange" data-salida="${r.id}"><i class="ti ti-truck-delivery"></i> Confirmar salida</button>` : ''}
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                ${puedeOperar ? `<button class="btn-sm orange" data-salida="${r.id}"><i class="ti ti-truck-delivery"></i> Confirmar salida</button>` : ''}
+                ${isJefe ? `<button class="btn-sm green" data-cerrar-huerfano="${r.id}" data-codigo="${r.codigo}"><i class="ti ti-check"></i> Cerrar recorrido</button>` : ''}
+                ${isJefe ? `<button class="btn-sm" style="border-color:#3a3000;color:#d4a830" data-editar-rec="${r.id}" data-operario="${r.operario}" data-fecha="${r.fecha}"><i class="ti ti-pencil"></i></button>` : ''}
+              </div>
             </div>
             <div style="font-size:11px;color:#555;margin-top:8px;display:flex;align-items:center;gap:6px;">
               <i class="ti ti-info-circle" style="font-size:11px;color:#e05555"></i>
-              Este recorrido nunca confirmó la salida. Si los pedidos ya se entregaron, cerrarlo desde SQL. Si no salió, confirmar la salida para activarlo.
+              Recorrido sin confirmar salida. Usá "Cerrar recorrido" si los pedidos ya se entregaron.
             </div>
           </div>`
         }).join('')}
@@ -960,7 +1088,7 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
     }
   }
 
-if (['operario','logistica'].includes(currentUser.rol)) {
+  if (['operario','logistica'].includes(currentUser.rol)) {
     navigator.serviceWorker.addEventListener('message', async (e) => {
       if (e.data?.type === 'GET_LOCATION') {
         if (!navigator.geolocation) return
@@ -976,11 +1104,9 @@ if (['operario','logistica'].includes(currentUser.rol)) {
         )
       }
     })
-
     setInterval(() => {
       navigator.serviceWorker.controller?.postMessage({ type: 'PING' })
     }, 20000)
-
     if (navigator.geolocation) {
       navigator.geolocation.watchPosition(
         async (pos) => {
@@ -995,17 +1121,16 @@ if (['operario','logistica'].includes(currentUser.rol)) {
         { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
       )
     }
-
     const startGPS = async () => {
       navigator.serviceWorker.controller?.postMessage({
         type: 'START_GPS',
         data: { supabaseUrl: SUPABASE_URL, supabaseKey: SUPABASE_KEY, operario: currentUser.nombre }
       })
     }
-
     if (navigator.serviceWorker.controller) { startGPS() }
     else { navigator.serviceWorker.ready.then(startGPS) }
   }
+
   await load()
   recListInterval = setInterval(() => { if (!hayModalAbierto()) load() }, 30000)
 }
