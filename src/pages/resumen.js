@@ -94,11 +94,8 @@ export async function renderResumen(el, { supabase, currentUser }) {
     const wrap = el.querySelector('#resumen-table-wrap')
     wrap.innerHTML = '<div class="loading">Cargando...</div>'
 
-    // Traer recorridos con pedidos + bultos via join directo a picking
     const { data: recorridos } = await supabase
-      .from('recorridos')
-      .select('*, recorrido_pedidos(*, picking(bultos))')
-      .eq('fecha', fecha)
+      .from('recorridos').select('*, recorrido_pedidos(*)').eq('fecha', fecha)
 
     const { data: retiras } = await supabase
       .from('retiras').select('*').eq('fecha', fecha)
@@ -108,9 +105,8 @@ export async function renderResumen(el, { supabase, currentUser }) {
       .select('*, clientes(transporte_tipo, transporte_id, transportes(nombre, retira_deposito))')
       .eq('estado', 'habilitado')
 
-    // bultosMap para retiras (que no tienen join directo)
     const { data: todosPicking } = await supabase
-      .from('picking').select('codigo_interno, nota_pedido, bultos').order('id', { ascending: false }).limit(10000)
+      .from('picking').select('codigo_interno, nota_pedido, bultos')
     const bultosMap = {}
     ;(todosPicking || []).forEach(p => {
       if (p.codigo_interno) bultosMap[p.codigo_interno] = p.bultos
@@ -138,8 +134,7 @@ export async function renderResumen(el, { supabase, currentUser }) {
     const todos = [
       ...(recorridos || []).flatMap(r => r.recorrido_pedidos.map(p => {
         const rechazado = p.estado === 'pendiente' && p.observaciones
-        // Bultos: primero del join directo a picking, fallback al bultosMap
-        const bultos = p.picking?.bultos || bultosMap[p.codigo_interno] || bultosMap[p.nota_pedido] || null
+        const bultos = bultosMap[p.codigo_interno] || bultosMap[p.nota_pedido] || null
         const transporteNombre = p.transporte_nombre || null
         const tipoLabel = p.tipo === 'pyb' ? 'Entrega P&B' : (transporteNombre ? `Transp. ${transporteNombre}` : 'Transp. ext.')
         return {
