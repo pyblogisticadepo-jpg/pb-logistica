@@ -85,6 +85,12 @@ export async function renderResumen(el, { supabase, currentUser }) {
       </div>`
   }
 
+  function getTipoLabelRetira(transporteNombre, esTransporteExterno) {
+    if (esTransporteExterno && transporteNombre) return `Retira ${transporteNombre}`
+    if (!esTransporteExterno && transporteNombre) return `Retira ${transporteNombre}`
+    return 'Retira cliente'
+  }
+
   const dateInput = el.querySelector('#resumen-date')
   dateInput.onchange = () => loadResumen(dateInput.value)
   loadResumen(today)
@@ -160,29 +166,33 @@ export async function renderResumen(el, { supabase, currentUser }) {
           _tipo: 'recorrido'
         }
       })),
-      ...(retiras || []).map(r => ({
-        id: r.id,
-        cliente: r.cliente_nombre,
-        nota: r.nota_pedido,
-        codigoInterno: r.codigo_interno,
-        tipo: 'retira',
-        tipoLabel: 'Retiro',
-        operario: '—',
-        estado: 'entregado',
-        horaEntrega: r.hora_retiro,
-        recorrido: '—',
-        documentacion: r.documentacion,
-        transporteRetira: r.transporte_nombre || null,
-        bultos: bultosMap[r.codigo_interno] || bultosMap[r.nota_pedido] || null,
-        fotos: (r.foto_remito || '').split(',').filter(Boolean),
-        _tipo: 'retira'
-      })),
+      ...(retiras || []).map(r => {
+        const transporteNombre = r.transporte_nombre || null
+        const tipoLabel = transporteNombre ? `Retira ${transporteNombre}` : 'Retira cliente'
+        return {
+          id: r.id,
+          cliente: r.cliente_nombre,
+          nota: r.nota_pedido,
+          codigoInterno: r.codigo_interno,
+          tipo: 'retira',
+          tipoLabel,
+          operario: '—',
+          estado: 'entregado',
+          horaEntrega: r.hora_retiro,
+          recorrido: '—',
+          documentacion: r.documentacion,
+          transporteRetira: transporteNombre,
+          bultos: bultosMap[r.codigo_interno] || bultosMap[r.nota_pedido] || null,
+          fotos: (r.foto_remito || '').split(',').filter(Boolean),
+          _tipo: 'retira'
+        }
+      }),
       ...habilitadosPendientes.map(p => {
         const tipo = p.clientes?.transporte_tipo
         const esRetira = tipo === 'retira' || (tipo === 'externo' && p.clientes?.transportes?.retira_deposito)
         const transporteNombrePend = p.clientes?.transportes?.nombre
         const tipoLabel = esRetira
-          ? (tipo === 'retira' ? 'Retira cliente' : `Retira ${transporteNombrePend || 'transporte'}`)
+          ? (transporteNombrePend ? `Retira ${transporteNombrePend}` : 'Retira cliente')
           : (tipo === 'pyb' ? 'Entrega P&B' : (transporteNombrePend ? `Transp. ${transporteNombrePend}` : 'Transp. ext.'))
         return {
           id: p.id,
