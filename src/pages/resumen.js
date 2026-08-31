@@ -140,7 +140,7 @@ export async function renderResumen(el, { supabase, currentUser }) {
     const todos = [
       ...(recorridos || []).flatMap(r => r.recorrido_pedidos.map(p => {
         const rechazado = p.estado === 'pendiente' && p.observaciones
-        const bultos = bultosMap[p.codigo_interno] || bultosMap[p.nota_pedido] || null
+        const bultos = bultosMap[p.codigo_interno?.trim()] || bultosMap[p.nota_pedido?.trim()] || null
         const transporteNombre = p.transporte_nombre || null
         const tipoLabel = p.tipo === 'pyb' ? 'Entrega P&B' : (transporteNombre ? `Transp. ${transporteNombre}` : 'Transp. ext.')
         return {
