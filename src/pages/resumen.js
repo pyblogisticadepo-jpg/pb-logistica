@@ -111,13 +111,15 @@ export async function renderResumen(el, { supabase, currentUser }) {
       .select('*, clientes(transporte_tipo, transporte_id, transportes(nombre, retira_deposito))')
       .eq('estado', 'habilitado')
 
-    const { data: todosPicking } = await supabase
+    const { data: todosPicking, error: errorPicking } = await supabase
       .from('picking').select('codigo_interno, nota_pedido, bultos')
+    console.log('todosPicking:', todosPicking?.length, 'error:', errorPicking)
     const bultosMap = {}
     ;(todosPicking || []).forEach(p => {
       if (p.codigo_interno) bultosMap[p.codigo_interno] = p.bultos
       if (p.nota_pedido) bultosMap[p.nota_pedido] = bultosMap[p.nota_pedido] || p.bultos
     })
+    console.log('bultosMap PYB-1254:', bultosMap['PYB-1254'])
 
     const { data: todosEntregados } = await supabase
       .from('recorrido_pedidos').select('nota_pedido, codigo_interno').eq('estado', 'entregado')
