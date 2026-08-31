@@ -112,7 +112,7 @@ export async function renderResumen(el, { supabase, currentUser }) {
       .eq('estado', 'habilitado')
 
     const { data: todosPicking, error: errorPicking } = await supabase
-      .from('picking').select('codigo_interno, nota_pedido, bultos')
+      .from('picking').select('codigo_interno, nota_pedido, bultos').limit(10000)
     console.log('todosPicking:', todosPicking?.length, 'error:', errorPicking)
     const bultosMap = {}
     ;(todosPicking || []).forEach(p => {
