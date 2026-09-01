@@ -100,35 +100,12 @@ export async function renderResumen(el, { supabase, currentUser }) {
     const { data: retiras } = await supabase
       .from('retiras').select('*').eq('fecha', fecha)
 
-    const { data: allPicking } = await supabase
-      .from('picking')
-      .select('*, clientes(transporte_tipo, transporte_id, transportes(nombre, retira_deposito))')
-      .eq('estado', 'habilitado')
-
     const { data: todosPicking } = await supabase
       .from('picking').select('codigo_interno, nota_pedido, bultos').order('id', { ascending: false })
     const bultosMap = {}
     ;(todosPicking || []).forEach(p => {
       if (p.codigo_interno) bultosMap[p.codigo_interno] = p.bultos
       if (p.nota_pedido) bultosMap[p.nota_pedido] = bultosMap[p.nota_pedido] || p.bultos
-    })
-
-    const { data: todosEntregados } = await supabase
-      .from('recorrido_pedidos').select('nota_pedido, codigo_interno').eq('estado', 'entregado')
-    const notasYaEntregadas = new Set((todosEntregados || []).map(p => p.nota_pedido))
-
-    const notasEnRecorridoActivo = (recorridos || [])
-      .filter(r => r.estado !== 'completado')
-      .flatMap(r => r.recorrido_pedidos.map(p => p.nota_pedido))
-
-    const { data: todasRetirasBD } = await supabase.from('retiras').select('nota_pedido, codigo_interno')
-    const todasNotasRetiradas = new Set((todasRetirasBD || []).map(r => r.nota_pedido))
-
-    const habilitadosPendientes = (allPicking || []).filter(p => {
-      if (notasYaEntregadas.has(p.nota_pedido)) return false
-      if (notasEnRecorridoActivo.includes(p.nota_pedido)) return false
-      if (todasNotasRetiradas.has(p.nota_pedido)) return false
-      return true
     })
 
     const todos = [
@@ -180,31 +157,6 @@ export async function renderResumen(el, { supabase, currentUser }) {
           fotos: (r.foto_remito || '').split(',').filter(Boolean),
           _tipo: 'retira'
         }
-      }),
-      ...(fecha === today ? habilitadosPendientes : []).map(p => {
-        const tipo = p.clientes?.transporte_tipo
-        const esRetira = tipo === 'retira' || (tipo === 'externo' && p.clientes?.transportes?.retira_deposito)
-        const transporteNombrePend = p.clientes?.transportes?.nombre
-        const tipoLabel = esRetira
-          ? (transporteNombrePend ? `Retira ${transporteNombrePend}` : 'Retira cliente')
-          : (tipo === 'pyb' ? 'Entrega P&B' : (transporteNombrePend ? `Transp. ${transporteNombrePend}` : 'Transp. ext.'))
-        return {
-          id: p.id,
-          cliente: p.cliente_nombre,
-          nota: p.nota_pedido,
-          codigoInterno: p.codigo_interno,
-          tipo: esRetira ? 'retira' : tipo || 'pyb',
-          tipoLabel,
-          transporteNombre: transporteNombrePend || null,
-          operario: '—',
-          estado: 'pendiente',
-          horaEntrega: null,
-          recorrido: '—',
-          documentacion: p.documentacion,
-          bultos: p.bultos,
-          fotos: [],
-          _tipo: esRetira ? 'retira_pendiente' : 'entrega_pendiente'
-        }
       })
     ]
 
@@ -217,7 +169,6 @@ export async function renderResumen(el, { supabase, currentUser }) {
     const entregados = todos.filter(p => p.estado === 'entregado').length
     const enReparto = todos.filter(p => p.estado === 'reparto').length
     const rechazados = todos.filter(p => p.estado === 'rechazado').length
-    const pendientes = todos.filter(p => p.estado === 'pendiente').length
     const totalBultos = todos.reduce((a, p) => a + (p.bultos || 0), 0)
 
     wrap.innerHTML = `
@@ -259,8 +210,7 @@ export async function renderResumen(el, { supabase, currentUser }) {
       <div class="stat-card"><div class="stat-label">Bultos</div><div class="stat-value" style="color:#d4a830">${totalBultos}</div></div>
       <div class="stat-card"><div class="stat-label">Entregados</div><div class="stat-value">${entregados}</div></div>
       <div class="stat-card"><div class="stat-label">En reparto</div><div class="stat-value">${enReparto}</div></div>
-      <div class="stat-card"><div class="stat-label">Rechazados</div><div class="stat-value" style="color:${rechazados > 0 ? '#e05555' : 'inherit'}">${rechazados}</div></div>
-      <div class="stat-card"><div class="stat-label">Pendientes</div><div class="stat-value" style="color:${pendientes > 0 ? '#d4a830' : 'inherit'}">${pendientes}</div></div>`
+      <div class="stat-card"><div class="stat-label">Rechazados</div><div class="stat-value" style="color:${rechazados > 0 ? '#e05555' : 'inherit'}">${rechazados}</div></div>`
   }
 
   function mostrarDetalle(p) {
@@ -299,15 +249,6 @@ export async function renderResumen(el, { supabase, currentUser }) {
           ${p.transporteRetira ? `<div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Transporte</div><div style="color:#d4a830">${p.transporteRetira}</div></div>` : ''}
         </div>
         ${renderFotosDetalle(p.fotos)}`
-    } else {
-      html = `
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
-          <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Tipo</div><div><span class="badge ${p.tipo === 'retira' ? 'badge-retira' : p.tipo === 'pyb' ? 'badge-pyb' : 'badge-externo'}">${p.tipoLabel}</span></div></div>
-          <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Estado</div><div><span class="badge badge-pendiente">Pendiente</span></div></div>
-          <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Documentación</div><div style="color:#aaa">${p.documentacion === 'fac_remito' ? 'Fac. y Remito' : p.documentacion === 'fac_etiqueta' ? 'Fac. y Etiqueta' : p.documentacion || '—'}</div></div>
-          <div><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Bultos</div><div style="font-family:'DM Mono',monospace;color:#d4a830;font-size:18px">${p.bultos || '—'}</div></div>
-          ${p.transporteNombre ? `<div style="grid-column:span 2"><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:4px">Transporte</div><div style="color:#a78bfa">${p.transporteNombre}</div></div>` : ''}
-        </div>`
     }
 
     el.querySelector('#detalle-body').innerHTML = html
