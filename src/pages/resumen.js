@@ -181,7 +181,7 @@ export async function renderResumen(el, { supabase, currentUser }) {
           _tipo: 'retira'
         }
       }),
-      ...habilitadosPendientes.map(p => {
+      ...(fecha === today ? habilitadosPendientes : []).map(p => {
         const tipo = p.clientes?.transporte_tipo
         const esRetira = tipo === 'retira' || (tipo === 'externo' && p.clientes?.transportes?.retira_deposito)
         const transporteNombrePend = p.clientes?.transportes?.nombre
