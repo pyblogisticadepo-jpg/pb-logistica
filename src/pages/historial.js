@@ -91,7 +91,7 @@ export async function renderHistorial(el, { supabase, currentUser }) {
       .order('hora_retiro', { ascending: false })
 
     const { data: todosPicking } = await supabase
-      .from('picking').select('codigo_interno, nota_pedido, bultos')
+      .from('picking').select('codigo_interno, nota_pedido, bultos').order('id', { ascending: false })
     const bultosMap = {}
     ;(todosPicking || []).forEach(p => {
       if (p.codigo_interno) bultosMap[p.codigo_interno] = p.bultos
