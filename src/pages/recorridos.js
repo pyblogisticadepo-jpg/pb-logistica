@@ -315,6 +315,29 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
             <label class="form-label">Fecha <span class="req">*</span></label>
             <input class="form-input" id="editar-rec-fecha" type="date">
           </div>
+          <div class="form-row">
+            <label class="form-label">Vehículo</label>
+            <select class="form-select" id="editar-rec-vehiculo">
+              <option value="">— sin cambiar —</option>
+              <option>Berlingo blanca</option>
+              <option>Kangoo blanca</option>
+              <option>Sprinter verde</option>
+              <option>Saveiro</option>
+              <option value="Vehículo personal">🚗 Vehículo personal</option>
+            </select>
+          </div>
+          <div class="form-row" id="editar-rec-km-sal-wrap">
+            <label class="form-label">Km de salida</label>
+            <input class="form-input" id="editar-rec-km-sal" type="number" placeholder="Ej: 45820">
+          </div>
+          <div class="form-row" id="editar-rec-km-reg-wrap">
+            <label class="form-label">Km de regreso</label>
+            <input class="form-input" id="editar-rec-km-reg" type="number" placeholder="Ej: 45951">
+          </div>
+          <div class="form-row">
+            <label class="form-label">Hora de salida</label>
+            <input class="form-input" id="editar-rec-hora-sal" type="time">
+          </div>
         </div>
         <div class="modal-footer">
           <button class="btn-cancel" id="cancel-editar-rec">Cancelar</button>
@@ -380,11 +403,26 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
   el.querySelector('#close-editar-rec').onclick = () => modalEditarRec.classList.remove('open')
   el.querySelector('#cancel-editar-rec').onclick = () => modalEditarRec.classList.remove('open')
   modalEditarRec.onclick = (e) => { if (e.target === modalEditarRec) modalEditarRec.classList.remove('open') }
+  el.querySelector('#editar-rec-vehiculo').onchange = () => {
+    const esPersonal = el.querySelector('#editar-rec-vehiculo').value === 'Vehículo personal'
+    el.querySelector('#editar-rec-km-sal-wrap').style.display = esPersonal ? 'none' : 'block'
+    el.querySelector('#editar-rec-km-reg-wrap').style.display = esPersonal ? 'none' : 'block'
+  }
   el.querySelector('#save-editar-rec').onclick = async () => {
     const operario = el.querySelector('#editar-rec-operario').value
     const fecha = el.querySelector('#editar-rec-fecha').value
     if (!operario || !fecha) { alert('Completá operario y fecha'); return }
-    const { error } = await supabase.from('recorridos').update({ operario, fecha }).eq('id', editarRecId)
+    const vehiculo = el.querySelector('#editar-rec-vehiculo').value
+    const esPersonal = vehiculo === 'Vehículo personal'
+    const kmSal = esPersonal ? null : (parseInt(el.querySelector('#editar-rec-km-sal').value) || null)
+    const kmReg = esPersonal ? null : (parseInt(el.querySelector('#editar-rec-km-reg').value) || null)
+    const horaSal = el.querySelector('#editar-rec-hora-sal').value || null
+    const update = { operario, fecha }
+    if (vehiculo) update.vehiculo = vehiculo
+    if (kmSal) update.km_salida = kmSal
+    if (kmReg) update.km_regreso = kmReg
+    if (horaSal) update.hora_salida = horaSal
+    const { error } = await supabase.from('recorridos').update(update).eq('id', editarRecId)
     if (error) { alert('Error: ' + error.message); return }
     modalEditarRec.classList.remove('open')
     await load()
@@ -717,6 +755,13 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
       el.querySelector('#editar-rec-fecha').value = btnEditarRec.dataset.fecha || today
       const { data: profilesEdit } = await supabase.from('profiles').select('nombre').eq('activo', true).in('rol', ['jefe','logistica','operario'])
       el.querySelector('#editar-rec-operario').innerHTML = '<option value="">— seleccionar —</option>' + (profilesEdit || []).map(p => `<option value="${p.nombre}" ${p.nombre === btnEditarRec.dataset.operario ? 'selected' : ''}>${p.nombre}</option>`).join('')
+      el.querySelector('#editar-rec-vehiculo').value = btnEditarRec.dataset.vehiculo || ''
+      el.querySelector('#editar-rec-km-sal').value = btnEditarRec.dataset.kmSal || ''
+      el.querySelector('#editar-rec-km-reg').value = btnEditarRec.dataset.kmReg || ''
+      el.querySelector('#editar-rec-hora-sal').value = btnEditarRec.dataset.horaSal || ''
+      const esPersonal = btnEditarRec.dataset.vehiculo === 'Vehículo personal'
+      el.querySelector('#editar-rec-km-sal-wrap').style.display = esPersonal ? 'none' : 'block'
+      el.querySelector('#editar-rec-km-reg-wrap').style.display = esPersonal ? 'none' : 'block'
       modalEditarRec.classList.add('open')
       return
     }
@@ -812,7 +857,7 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
             ${mapsUrl ? `<a href="${mapsUrl}" target="_blank" style="display:flex;align-items:center;gap:4px;padding:6px 10px;background:#0d1f0d;border:1px solid #1a3a1a;border-radius:2px;color:#52c452;font-size:11px;text-decoration:none;white-space:nowrap"><i class="ti ti-map-2"></i> Maps</a>` : ''}
             ${puedeOperar && r.estado === 'pendiente' ? `<button class="btn-sm orange" data-salida="${r.id}"><i class="ti ti-truck-delivery"></i> Confirmar salida</button>` : ''}
             ${puedeOperar && listoParaRegresar ? `<button class="btn-sm green" data-regreso="${r.id}"><i class="ti ti-home"></i> Confirmar regreso</button>` : ''}
-            ${isJefe ? `<button class="btn-sm" style="border-color:#3a3000;color:#d4a830" data-editar-rec="${r.id}" data-operario="${r.operario}" data-fecha="${r.fecha}"><i class="ti ti-pencil"></i></button>` : ''}
+            ${isJefe ? `<button class="btn-sm" style="border-color:#3a3000;color:#d4a830" data-editar-rec="${r.id}" data-operario="${r.operario}" data-fecha="${r.fecha}" data-vehiculo="${r.vehiculo || ''}" data-km-sal="${r.km_salida || ''}" data-km-reg="${r.km_regreso || ''}" data-hora-sal="${r.hora_salida || ''}"><i class="ti ti-pencil"></i></button>` : ''}
           </div>
         </div>
         ${r.estado === 'pendiente' && puedeOperar ? `
@@ -874,7 +919,7 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
               <div style="display:flex;gap:6px;flex-wrap:wrap">
                 ${puedeOperar ? `<button class="btn-sm orange" data-salida="${r.id}"><i class="ti ti-truck-delivery"></i> Confirmar salida</button>` : ''}
                 ${isJefe ? `<button class="btn-sm green" data-cerrar-huerfano="${r.id}" data-codigo="${r.codigo}"><i class="ti ti-check"></i> Cerrar recorrido</button>` : ''}
-                ${isJefe ? `<button class="btn-sm" style="border-color:#3a3000;color:#d4a830" data-editar-rec="${r.id}" data-operario="${r.operario}" data-fecha="${r.fecha}"><i class="ti ti-pencil"></i></button>` : ''}
+                ${isJefe ? `<button class="btn-sm" style="border-color:#3a3000;color:#d4a830" data-editar-rec="${r.id}" data-operario="${r.operario}" data-fecha="${r.fecha}" data-vehiculo="${r.vehiculo || ''}" data-km-sal="${r.km_salida || ''}" data-km-reg="${r.km_regreso || ''}" data-hora-sal="${r.hora_salida || ''}"><i class="ti ti-pencil"></i></button>` : ''}
               </div>
             </div>
             <div style="font-size:11px;color:#555;margin-top:8px;display:flex;align-items:center;gap:6px;">
