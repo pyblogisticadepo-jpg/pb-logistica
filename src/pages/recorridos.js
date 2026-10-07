@@ -991,6 +991,20 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
   }
 
   if (canEdit) {
+    async function fetchAll(buildQuery) {
+      const pageSize = 1000
+      const all = []
+      for (let from = 0; ; from += pageSize) {
+        const { data, error } = await buildQuery().range(from, from + pageSize - 1)
+        if (error) throw error
+        all.push(...(data || []))
+        if (!data || data.length < pageSize) break
+      }
+      return all
+    }
+
+    let creando = false
+
     el.querySelector('#btn-new-rec').onclick = async () => {
       selectedPedidos = []
       el.querySelector('#ruta-preview').style.display = 'none'
@@ -999,17 +1013,17 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
       optimizarBtn.innerHTML = '<i class="ti ti-route"></i> Optimizar y crear'
       optimizarBtn.disabled = false
       optimizarBtn.dataset.step = ''
-      const { data: recorridosActivos } = await supabase.from('recorridos').select('id').neq('estado', 'completado')
-      const idsActivos = (recorridosActivos || []).map(r => r.id)
-      const { data: enRutaActiva } = idsActivos.length > 0
-        ? await supabase.from('recorrido_pedidos').select('codigo_interno, nota_pedido').in('recorrido_id', idsActivos)
-        : { data: [] }
-      const codigosEnRutaActiva = new Set((enRutaActiva || []).map(p => p.codigo_interno).filter(Boolean))
-      const notasEnRutaActiva = new Set((enRutaActiva || []).map(p => p.nota_pedido).filter(Boolean))
-      const { data: yaEntregados } = await supabase.from('recorrido_pedidos').select('codigo_interno, nota_pedido').eq('estado', 'entregado')
-      const codigosYaEntregados = new Set((yaEntregados || []).map(p => p.codigo_interno).filter(Boolean))
-      const notasYaEntregadas = new Set((yaEntregados || []).map(p => p.nota_pedido).filter(Boolean))
-      const { data: yaRetirados } = await supabase.from('retiras').select('codigo_interno, nota_pedido')
+      const recorridosActivos = await fetchAll(() => supabase.from('recorridos').select('id').neq('estado', 'completado').order('id'))
+      const idsActivos = recorridosActivos.map(r => r.id)
+      const enRutaActiva = idsActivos.length > 0
+        ? await fetchAll(() => supabase.from('recorrido_pedidos').select('codigo_interno, nota_pedido').in('recorrido_id', idsActivos).order('id'))
+        : []
+      const codigosEnRutaActiva = new Set(enRutaActiva.map(p => p.codigo_interno).filter(Boolean))
+      const notasEnRutaActiva = new Set(enRutaActiva.map(p => p.nota_pedido).filter(Boolean))
+      const yaEntregados = await fetchAll(() => supabase.from('recorrido_pedidos').select('codigo_interno, nota_pedido').eq('estado', 'entregado').order('id'))
+      const codigosYaEntregados = new Set(yaEntregados.map(p => p.codigo_interno).filter(Boolean))
+      const notasYaEntregadas = new Set(yaEntregados.map(p => p.nota_pedido).filter(Boolean))
+      const yaRetirados = await fetchAll(() => supabase.from('retiras').select('codigo_interno, nota_pedido').order('id'))
       const codigosYaRetirados = new Set((yaRetirados || []).map(r => r.codigo_interno).filter(Boolean))
       const notasYaRetiradas = new Set((yaRetirados || []).map(r => r.nota_pedido).filter(Boolean))
       const { data: pk } = await supabase.from('picking').select('id, nota_pedido, cliente_nombre, cliente_id, codigo_interno').eq('estado', 'habilitado').order('id', { ascending: false }).limit(10000)
@@ -1081,25 +1095,69 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
     el.querySelector('#optimizar-btn').onclick = async () => {
       const btn = el.querySelector('#optimizar-btn')
       if (btn.dataset.step === 'confirmar') {
+        if (creando) return
         if (pedidosOrdenados.length === 0) return
         const operario = el.querySelector('#rec-operario').value
         if (!operario) { alert('Asigná un operario'); return }
+        creando = true
         btn.innerHTML = 'Creando...'
         btn.disabled = true
-        const today = new Date().toISOString().split('T')[0].replace(/-/g, '')
-        const { data: existing } = await supabase.from('recorridos').select('id').like('codigo', `RPT-${today}-%`)
-        const num = String((existing?.length || 0) + 1).padStart(3, '0')
-        const codigo = `RPT-${today}-${num}`
-        const { data: rec, error: recError } = await supabase.from('recorridos').insert({ codigo, operario, estado: 'pendiente' }).select().single()
-        if (recError || !rec) { alert('Error: ' + (recError?.message || 'desconocido')); btn.disabled = false; return }
-        const pedidosInsert = pedidosOrdenados.map((p, i) => ({ recorrido_id: rec.id, nota_pedido: p.nota, codigo_interno: p.codigo || null, cliente_nombre: p.cliente, direccion: p.dir || null, tipo: p.tipo, transporte_nombre: p.transporteNombre || null, orden: i + 1, estado: 'pendiente' }))
-        const { error: pedError } = await supabase.from('recorrido_pedidos').insert(pedidosInsert)
-        if (pedError) { alert('Error: ' + pedError.message); btn.disabled = false; return }
-        modal.classList.remove('open')
-        selectedPedidos = []
-        pedidosOrdenados = []
-        btn.dataset.step = ''
-        await load()
+        let recCreadoId = null
+        let exito = false
+        try {
+          // Revalidar: la lista de disponibles pudo quedar desactualizada
+          const codigos = [...new Set(pedidosOrdenados.map(p => p.codigo).filter(Boolean))]
+          const notas = [...new Set(pedidosOrdenados.filter(p => !p.codigo).map(p => p.nota).filter(Boolean))]
+          const existentes = []
+          if (codigos.length > 0) {
+            existentes.push(...await fetchAll(() => supabase.from('recorrido_pedidos').select('codigo_interno, nota_pedido, estado, recorridos(estado)').in('codigo_interno', codigos).order('id')))
+          }
+          if (notas.length > 0) {
+            existentes.push(...await fetchAll(() => supabase.from('recorrido_pedidos').select('codigo_interno, nota_pedido, estado, recorridos(estado)').in('nota_pedido', notas).order('id')))
+          }
+          const conflictos = existentes.filter(x => x.estado === 'entregado' || x.recorridos?.estado !== 'completado')
+          if (conflictos.length > 0) {
+            const detalle = [...new Set(conflictos.map(x => x.codigo_interno || x.nota_pedido))].join(', ')
+            alert('Algunos pedidos ya fueron asignados o entregados en otro recorrido (' + detalle + '). Se cancela la creación; volvé a abrir "Nuevo recorrido".')
+            exito = true // modal cerrado: no restaurar el botón
+            modal.classList.remove('open')
+            selectedPedidos = []
+            pedidosOrdenados = []
+            btn.dataset.step = ''
+            await load()
+            return
+          }
+          const today = new Date().toISOString().split('T')[0].replace(/-/g, '')
+          const { data: existing } = await supabase.from('recorridos').select('id').like('codigo', `RPT-${today}-%`)
+          const num = String((existing?.length || 0) + 1).padStart(3, '0')
+          const codigo = `RPT-${today}-${num}`
+          const { data: rec, error: recError } = await supabase.from('recorridos').insert({ codigo, operario, estado: 'pendiente' }).select().single()
+          if (recError || !rec) { alert('Error: ' + (recError?.message || 'desconocido')); return }
+          recCreadoId = rec.id
+          const pedidosInsert = pedidosOrdenados.map((p, i) => ({ recorrido_id: rec.id, nota_pedido: p.nota, codigo_interno: p.codigo || null, cliente_nombre: p.cliente, direccion: p.dir || null, tipo: p.tipo, transporte_nombre: p.transporteNombre || null, orden: i + 1, estado: 'pendiente' }))
+          const { error: pedError } = await supabase.from('recorrido_pedidos').insert(pedidosInsert)
+          if (pedError) {
+            await supabase.from('recorridos').delete().eq('id', rec.id)
+            recCreadoId = null
+            alert('Error: ' + pedError.message)
+            return
+          }
+          exito = true
+          modal.classList.remove('open')
+          selectedPedidos = []
+          pedidosOrdenados = []
+          btn.dataset.step = ''
+          await load()
+        } catch (err) {
+          if (recCreadoId) await supabase.from('recorridos').delete().eq('id', recCreadoId)
+          alert('Error: ' + (err?.message || 'desconocido'))
+        } finally {
+          creando = false
+          if (!exito) {
+            btn.innerHTML = '<i class="ti ti-check"></i> Confirmar recorrido'
+            btn.disabled = false
+          }
+        }
         return
       }
       if (selectedPedidos.length === 0) { alert('Seleccioná al menos un pedido'); return }
