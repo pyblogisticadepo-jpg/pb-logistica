@@ -421,8 +421,18 @@ const { data: allPicking } = await supabase
     const codigosYaEntregados = new Set(todosEntregados.map(p => p.codigo_interno).filter(Boolean))
     const notasYaEntregadas = new Set(todosEntregados.map(p => p.nota_pedido).filter(Boolean))
 
-    const notasEnRecorridoActivo = new Set(currentRecorridos.filter(r => r.estado !== 'completado').flatMap(r => r.recorrido_pedidos.map(p => p.nota_pedido).filter(Boolean)))
-    const codigosEnRecorridoActivo = new Set(currentRecorridos.filter(r => r.estado !== 'completado').flatMap(r => r.recorrido_pedidos.map(p => p.codigo_interno).filter(Boolean)))
+    const todosActivos = await fetchAll(() =>
+      supabase.from('recorridos')
+        .select('*, recorrido_pedidos(*)')
+        .neq('estado', 'completado')
+        .order('id')
+    )
+    const notasEnRecorridoActivo = new Set(
+      todosActivos.flatMap(r => r.recorrido_pedidos.map(p => p.nota_pedido)).filter(Boolean)
+    )
+    const codigosEnRecorridoActivo = new Set(
+      todosActivos.flatMap(r => r.recorrido_pedidos.map(p => p.codigo_interno)).filter(Boolean)
+    )
 
     const todasRetiras = await fetchAll(() => supabase.from('retiras').select('nota_pedido, codigo_interno').order('id'))
     const codigosYaRetirados = new Set(todasRetiras.map(r => r.codigo_interno).filter(Boolean))
