@@ -370,6 +370,18 @@ export async function renderDespacho(el, { supabase, currentUser, isObserver }) 
     }
   }
 
+  async function fetchAll(buildQuery) {
+    const pageSize = 1000
+    const all = []
+    for (let from = 0; ; from += pageSize) {
+      const { data, error } = await buildQuery().range(from, from + pageSize - 1)
+      if (error) throw error
+      all.push(...(data || []))
+      if (!data || data.length < pageSize) break
+    }
+    return all
+  }
+
   async function load() {
     const today = new Date().toISOString().split('T')[0]
     await limpiarRechazadosHuerfanos()
@@ -405,24 +417,32 @@ const { data: allPicking } = await supabase
     const transportesRetiraMap = {}
     ;(transportesRetira || []).forEach(t => { transportesRetiraMap[t.id] = t.nombre })
 
-    const { data: todosEntregados } = await supabase.from('recorrido_pedidos').select('nota_pedido, codigo_interno').eq('estado', 'entregado')
-    const codigosYaEntregados = new Set((todosEntregados || []).map(p => p.codigo_interno).filter(Boolean))
-    const notasYaEntregadas = new Set((todosEntregados || []).map(p => p.nota_pedido).filter(Boolean))
+    const todosEntregados = await fetchAll(() => supabase.from('recorrido_pedidos').select('nota_pedido, codigo_interno').eq('estado', 'entregado').order('id'))
+    const codigosYaEntregados = new Set(todosEntregados.map(p => p.codigo_interno).filter(Boolean))
+    const notasYaEntregadas = new Set(todosEntregados.map(p => p.nota_pedido).filter(Boolean))
 
-    const notasEnRecorridoActivo = currentRecorridos.filter(r => r.estado !== 'completado').flatMap(r => r.recorrido_pedidos.map(p => p.nota_pedido))
+    const notasEnRecorridoActivo = new Set(currentRecorridos.filter(r => r.estado !== 'completado').flatMap(r => r.recorrido_pedidos.map(p => p.nota_pedido).filter(Boolean)))
     const codigosEnRecorridoActivo = new Set(currentRecorridos.filter(r => r.estado !== 'completado').flatMap(r => r.recorrido_pedidos.map(p => p.codigo_interno).filter(Boolean)))
 
-    const { data: todasRetiras } = await supabase.from('retiras').select('nota_pedido, codigo_interno')
-    const codigosYaRetirados = new Set((todasRetiras || []).map(r => r.codigo_interno).filter(Boolean))
-    const notasYaRetiradas = new Set((todasRetiras || []).map(r => r.nota_pedido).filter(Boolean))
+    const todasRetiras = await fetchAll(() => supabase.from('retiras').select('nota_pedido, codigo_interno').order('id'))
+    const codigosYaRetirados = new Set(todasRetiras.map(r => r.codigo_interno).filter(Boolean))
+    const notasYaRetiradas = new Set(todasRetiras.map(r => r.nota_pedido).filter(Boolean))
 
     const retirosPendientes = []
     const entregasPendientes = []
 
-    ;(allPicking || []).forEach(p => {
-      if (p.codigo_interno ? codigosYaEntregados.has(p.codigo_interno) : notasYaEntregadas.has(p.nota_pedido)) return
-      if (p.codigo_interno ? codigosEnRecorridoActivo.has(p.codigo_interno) : notasEnRecorridoActivo.includes(p.nota_pedido)) return
-      if (p.codigo_interno ? codigosYaRetirados.has(p.codigo_interno) : notasYaRetiradas.has(p.nota_pedido)) return
+    const disponibles = (allPicking || []).filter(p => {
+      return (
+        !codigosYaEntregados.has(p.codigo_interno) &&
+        !codigosEnRecorridoActivo.has(p.codigo_interno) &&
+        !codigosYaRetirados.has(p.codigo_interno) &&
+        !notasYaEntregadas.has(p.nota_pedido) &&
+        !notasEnRecorridoActivo.has(p.nota_pedido) &&
+        !notasYaRetiradas.has(p.nota_pedido)
+      )
+    })
+
+    disponibles.forEach(p => {
       const cliente = clientesMap[p.cliente_id]
       if (!cliente) return
       const tipo = cliente.transporte_tipo
