@@ -1032,9 +1032,9 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
           !codigosEnRutaActiva.has(p.codigo_interno) &&
           !codigosYaEntregados.has(p.codigo_interno) &&
           !codigosYaRetirados.has(p.codigo_interno) &&
-          !notasEnRutaActiva.has(p.nota_pedido) &&
-          !notasYaEntregadas.has(p.nota_pedido) &&
-          !notasYaRetiradas.has(p.nota_pedido)
+          (p.codigo_interno || !notasEnRutaActiva.has(p.nota_pedido)) &&
+          (p.codigo_interno || !notasYaEntregadas.has(p.nota_pedido)) &&
+          (p.codigo_interno || !notasYaRetiradas.has(p.nota_pedido))
         )
       })
       if (disponiblesPk.length === 0) {
