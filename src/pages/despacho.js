@@ -446,9 +446,9 @@ const { data: allPicking } = await supabase
         !codigosYaEntregados.has(p.codigo_interno) &&
         !codigosEnRecorridoActivo.has(p.codigo_interno) &&
         !codigosYaRetirados.has(p.codigo_interno) &&
-        !notasYaEntregadas.has(p.nota_pedido) &&
-        !notasEnRecorridoActivo.has(p.nota_pedido) &&
-        !notasYaRetiradas.has(p.nota_pedido)
+        (p.codigo_interno || !notasYaEntregadas.has(p.nota_pedido)) &&
+        (p.codigo_interno || !notasEnRecorridoActivo.has(p.nota_pedido)) &&
+        (p.codigo_interno || !notasYaRetiradas.has(p.nota_pedido))
       )
     })
 
