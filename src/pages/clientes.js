@@ -32,6 +32,7 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
             <div><label class="form-label">Horario</label><input class="form-input" id="c-horario" placeholder="Lun–Vie 8–17hs"></div>
             <div><label class="form-label">Teléfono</label><input class="form-input" id="c-tel" placeholder="351-xxx-xxxx"></div>
           </div>
+          <div class="form-row"><label class="form-label">Email</label><input class="form-input" id="c-email" type="email" placeholder="contacto@cliente.com"><div class="form-hint">Se usa para enviar el link de seguimiento del pedido</div></div>
           <div class="form-row"><label class="form-label">Aclaraciones</label><textarea class="form-textarea" id="c-aclar" placeholder="Ej: Entrar por Italia..."></textarea></div>
           <div class="form-row">
             <label class="form-label">Transporte habitual</label>
@@ -161,6 +162,7 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
     el.querySelector('#c-horario').value = c.horario || ''
     el.querySelector('#c-tel').value = c.telefono || ''
     el.querySelector('#c-aclar').value = c.aclaraciones || ''
+    el.querySelector('#c-email').value = c.email || ''
     tipoSel.value = c.transporte_tipo || 'pyb'
     tipoSel.dispatchEvent(new Event('change'))
     if (c.transporte_id) el.querySelector('#c-transporte-id').value = c.transporte_id
@@ -181,6 +183,7 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
       horario: el.querySelector('#c-horario').value.trim() || null,
       telefono: el.querySelector('#c-tel').value.trim() || null,
       aclaraciones: el.querySelector('#c-aclar').value.trim() || null,
+      email: el.querySelector('#c-email').value.trim() || null,
       transporte_tipo: tipo,
       transporte_id: transporteId,
       updated_at: new Date().toISOString()
@@ -199,7 +202,7 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
     el.querySelector('#btn-new-client').onclick = () => {
       editingId = null
       el.querySelector('#modal-client-title').textContent = 'Nuevo cliente'
-      ;['c-nombre','c-cuit','c-manager','c-dir','c-horario','c-tel','c-aclar'].forEach(id => { el.querySelector('#'+id).value = '' })
+      ;['c-nombre','c-cuit','c-manager','c-dir','c-horario','c-tel','c-aclar','c-email'].forEach(id => { el.querySelector('#'+id).value = '' })
       tipoSel.value = 'pyb'
       tipoSel.dispatchEvent(new Event('change'))
       modal.classList.add('open')
