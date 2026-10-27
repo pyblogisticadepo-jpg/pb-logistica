@@ -15,6 +15,15 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
         <option value="con">Con dirección</option>
         <option value="sin">Sin dirección</option>
       </select>
+      <select class="filter-select" id="client-vendedor-filter">
+        <option value="">Todos los vendedores</option>
+        <option value="Diego">Diego</option>
+        <option value="Matias">Matias</option>
+        <option value="Hernan">Hernan</option>
+        <option value="Emilio">Emilio</option>
+        <option value="Ignacio">Ignacio</option>
+        <option value="AUTOGESTION">AUTOGESTIÓN</option>
+      </select>
     </div>
     <div id="clientes-table-wrap"><div class="loading">Cargando...</div></div>
 
@@ -33,6 +42,7 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
             <div><label class="form-label">Teléfono</label><input class="form-input" id="c-tel" placeholder="351-xxx-xxxx"></div>
           </div>
           <div class="form-row"><label class="form-label">Email</label><input class="form-input" id="c-email" type="email" placeholder="contacto@cliente.com"><div class="form-hint">Se usa para enviar el link de seguimiento del pedido</div></div>
+          <div class="form-row"><label class="form-label">Vendedor</label><select class="form-select" id="c-vendedor"><option value="">— Sin asignar —</option><option value="Diego">Diego</option><option value="Matias">Matias</option><option value="Hernan">Hernan</option><option value="Emilio">Emilio</option><option value="Ignacio">Ignacio</option><option value="AUTOGESTION">AUTOGESTIÓN</option></select></div>
           <div class="form-row"><label class="form-label">Aclaraciones</label><textarea class="form-textarea" id="c-aclar" placeholder="Ej: Entrar por Italia..."></textarea></div>
           <div class="form-row">
             <label class="form-label">Transporte habitual</label>
@@ -130,11 +140,12 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
     const wrap = el.querySelector('#clientes-table-wrap')
     if (lista.length === 0) { wrap.innerHTML = '<div class="empty-state">Sin clientes</div>'; return }
     wrap.innerHTML = `<table class="data-table">
-      <thead><tr><th>Cliente</th><th>Nº Manager</th><th>CUIT</th><th>Dirección</th><th>Transporte</th><th>Hab.</th>${canEdit ? '<th></th>' : ''}</tr></thead>
+      <thead><tr><th>Cliente</th><th>Vendedor</th><th>Nº Manager</th><th>CUIT</th><th>Dirección</th><th>Transporte</th><th>Hab.</th>${canEdit ? '<th></th>' : ''}</tr></thead>
       <tbody>${lista.map(c => {
         const hab = isHabilitado(c)
         return `<tr>
           <td style="color:#ccc;font-weight:500">${c.nombre}</td>
+          <td style="color:#888;font-size:12px">${c.vendedor || '<span style="color:#2a2a2a">—</span>'}</td>
           <td style="font-family:'DM Mono',monospace;color:#5aadee;font-size:12px">${c.nro_manager || '<span style="color:#2a2a2a">—</span>'}</td>
           <td style="font-family:'DM Mono',monospace;color:#555;font-size:12px">${c.cuit || '<span style="color:#2a2a2a">—</span>'}</td>
           <td>${c.direccion || '<span style="color:#2a2a2a;font-style:italic">Sin cargar</span>'}</td>
@@ -163,6 +174,7 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
     el.querySelector('#c-tel').value = c.telefono || ''
     el.querySelector('#c-aclar').value = c.aclaraciones || ''
     el.querySelector('#c-email').value = c.email || ''
+    el.querySelector('#c-vendedor').value = c.vendedor || ''
     tipoSel.value = c.transporte_tipo || 'pyb'
     tipoSel.dispatchEvent(new Event('change'))
     if (c.transporte_id) el.querySelector('#c-transporte-id').value = c.transporte_id
@@ -184,6 +196,7 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
       telefono: el.querySelector('#c-tel').value.trim() || null,
       aclaraciones: el.querySelector('#c-aclar').value.trim() || null,
       email: el.querySelector('#c-email').value.trim() || null,
+      vendedor: el.querySelector('#c-vendedor').value || null,
       transporte_tipo: tipo,
       transporte_id: transporteId,
       updated_at: new Date().toISOString()
@@ -203,6 +216,7 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
       editingId = null
       el.querySelector('#modal-client-title').textContent = 'Nuevo cliente'
       ;['c-nombre','c-cuit','c-manager','c-dir','c-horario','c-tel','c-aclar','c-email'].forEach(id => { el.querySelector('#'+id).value = '' })
+      el.querySelector('#c-vendedor').value = ''
       tipoSel.value = 'pyb'
       tipoSel.dispatchEvent(new Event('change'))
       modal.classList.add('open')
@@ -211,13 +225,16 @@ export async function renderClientes(el, { supabase, currentUser, isObserver }) 
 
   el.querySelector('#client-search').oninput = () => filter()
   el.querySelector('#client-filter').onchange = () => filter()
+  el.querySelector('#client-vendedor-filter').onchange = () => filter()
 
   function filter() {
     const q = el.querySelector('#client-search').value.toLowerCase()
     const f = el.querySelector('#client-filter').value
+    const v = el.querySelector('#client-vendedor-filter').value
     renderTable(allClientes.filter(c =>
       (c.nombre.toLowerCase().includes(q) || (c.direccion || '').toLowerCase().includes(q) || (c.nro_manager || '').toLowerCase().includes(q) || (c.cuit || '').toLowerCase().includes(q)) &&
-      (f === '' ? true : f === 'con' ? !!c.direccion : !c.direccion)
+      (f === '' ? true : f === 'con' ? !!c.direccion : !c.direccion) &&
+      (v === '' ? true : c.vendedor === v)
     ))
   }
 
