@@ -798,10 +798,31 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
     }
     if (btn.dataset.entregar) {
       const hora = new Date().toTimeString().slice(0,5)
+      const pedidoId = parseInt(btn.dataset.entregar)
       const { error } = await supabase.from('recorrido_pedidos').update({
         estado: 'entregado', hora_entrega: hora
-      }).eq('id', parseInt(btn.dataset.entregar))
+      }).eq('id', pedidoId)
       if (error) { alert('Error: ' + error.message); return }
+
+      // Actualizar pedido_tracking con estado entregado + datos de transporte + foto remito
+      try {
+        const { data: rp } = await supabase.from('recorrido_pedidos').select('codigo_interno, foto_remito, transporte_nombre').eq('id', pedidoId).single()
+        if (rp?.codigo_interno) {
+          let telefono = null, contacto = null
+          if (rp.transporte_nombre) {
+            const { data: transp } = await supabase.from('transportes').select('telefono, contacto').eq('nombre', rp.transporte_nombre).maybeSingle()
+            telefono = transp?.telefono || null
+            contacto = transp?.contacto || null
+          }
+          await supabase.from('pedido_tracking').update({
+            estado: 'entregado_transporte',
+            transporte_telefono: telefono,
+            transporte_contacto: contacto,
+            foto_remito: rp.foto_remito || null
+          }).eq('codigo_interno', rp.codigo_interno)
+        }
+      } catch (_) {}
+
       await load()
       return
     }

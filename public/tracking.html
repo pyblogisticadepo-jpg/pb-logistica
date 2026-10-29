@@ -191,6 +191,17 @@
     }
     .tel-link:hover { text-decoration: underline; }
 
+    /* Remito fotos */
+    .remito-fotos { margin: 12px 0 4px; }
+    .remito-foto-link { display: inline-block; margin-right: 8px; margin-bottom: 8px; }
+    .remito-foto-img {
+      width: 100%;
+      max-width: 280px;
+      border-radius: 2px;
+      border: 1px solid var(--border);
+      display: block;
+    }
+
     /* Copy button */
     .copy-btn {
       display: inline-flex;
@@ -406,12 +417,20 @@
 
       // Transport card (shown when relevant)
       const showTransport = (estado === 'entregado_transporte' || estado === 'retirado_transporte') && t.transporte_nombre
+      const remitoFotos = (t.foto_remito || '').split(',').filter(Boolean)
       const transportHtml = showTransport ? `
         <div class="transport-card">
           <div class="transport-label">Transporte</div>
           <div class="transport-name">${t.transporte_nombre}</div>
           ${t.transporte_contacto ? `<div class="transport-row">${icons.user}<span>${t.transporte_contacto}</span></div>` : ''}
           ${t.transporte_telefono ? `<div class="transport-row">${icons.phone}<a href="tel:${t.transporte_telefono}" class="tel-link">${t.transporte_telefono}</a></div>` : ''}
+          ${remitoFotos.length > 0 ? `
+          <div class="remito-fotos">
+            <div class="transport-label" style="margin-bottom:8px">Foto del remito</div>
+            ${remitoFotos.map((url, i) => `<a href="${url}" target="_blank" class="remito-foto-link">
+              <img src="${url}" alt="Remito ${i+1}" class="remito-foto-img" />
+            </a>`).join('')}
+          </div>` : ''}
           <button class="copy-btn" onclick="copyLink()">${icons.copy} Copiar link de seguimiento</button>
         </div>` : ''
 
