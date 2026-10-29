@@ -152,6 +152,7 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
         <div class="modal-body" id="pk-detalle-body"></div>
         <div class="modal-footer">
           <button class="btn-cancel" id="cancel-pk-detalle">Cerrar</button>
+          <button class="btn-confirm" style="background:#1a2030;color:#5aadee;display:none" id="btn-tracking-link" title="Ver link de seguimiento"><i class="ti ti-eye"></i> Tracking</button>
           <button class="btn-confirm" style="background:#1a3a1a;color:#52c452;display:none" id="btn-avanzar-paso"><i class="ti ti-arrow-right"></i> <span id="btn-avanzar-label">Completar armado</span></button>
           <button class="btn-confirm" style="background:#2d1a52;color:#a78bfa;display:none" id="btn-editar-picking"><i class="ti ti-pencil"></i> Editar</button>
           <button class="btn-confirm" style="background:#e05555;display:none" id="btn-cancelar-picking"><i class="ti ti-ban"></i> Cancelar pedido</button>
@@ -596,6 +597,30 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     const btnEditar = el.querySelector('#btn-editar-picking')
     btnEditar.style.display = isJefe ? 'block' : 'none'
 
+    // Tracking link button
+    const btnTracking = el.querySelector('#btn-tracking-link')
+    if (p.codigo_interno && !cancelado) {
+      const { data: trackingRow } = await supabase
+        .from('pedido_tracking').select('token').eq('codigo_interno', p.codigo_interno).maybeSingle()
+      if (trackingRow?.token) {
+        btnTracking.style.display = 'block'
+        btnTracking.onclick = () => {
+          const url = `${window.location.origin}/tracking/${trackingRow.token}`
+          navigator.clipboard.writeText(url).then(() => {
+            const orig = btnTracking.innerHTML
+            btnTracking.innerHTML = '<i class="ti ti-check"></i> Link copiado'
+            setTimeout(() => { btnTracking.innerHTML = orig }, 2000)
+          }).catch(() => {
+            prompt('Link de seguimiento:', url)
+          })
+        }
+      } else {
+        btnTracking.style.display = 'none'
+      }
+    } else {
+      btnTracking.style.display = 'none'
+    }
+
     const btnCancel = el.querySelector('#btn-cancelar-picking')
     if (puedeCancel && !yaFinalizado) {
       btnCancel.style.display = 'block'
@@ -662,6 +687,31 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
       estado: 'preparacion'
     })
     if (error) { alert('Error al guardar el picking: ' + error.message); return false }
+
+    // Crear registro de tracking (en background, no bloquea)
+    try {
+      const { data: clienteData } = await supabase
+        .from('clientes').select('email, transporte_tipo').eq('id', clienteId).single()
+
+      const flujo = (clienteData?.transporte_tipo === 'retira') ? 'retira_cliente' : 'transporte'
+
+      const { data: trackingRecord } = await supabase.from('pedido_tracking').insert({
+        codigo_interno: codigoInterno,
+        nota_pedido: '#' + nota,
+        cliente_nombre: clienteNombre,
+        cliente_email: clienteData?.email || null,
+        flujo,
+        estado: 'en_preparacion'
+      }).select().single()
+
+      // Enviar email si tiene email (fire and forget)
+      if (trackingRecord?.id && clienteData?.email) {
+        supabase.functions.invoke('send-tracking-email', {
+          body: { tracking_id: trackingRecord.id }
+        }).catch(() => {})
+      }
+    } catch (_) {}
+
     return true
   }
 

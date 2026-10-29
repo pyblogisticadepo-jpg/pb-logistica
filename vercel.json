@@ -1,5 +1,6 @@
 {
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/tracking/:token", "destination": "/tracking.html" },
+    { "source": "/((?!tracking/).*)", "destination": "/index.html" }
   ]
 }

@@ -33,6 +33,7 @@ export async function renderHistorial(el, { supabase, currentUser }) {
         <div class="modal-body" id="h-detalle-body"></div>
         <div class="modal-footer">
           <button class="btn-cancel" id="cancel-h-detalle">Cerrar</button>
+          <button class="btn-confirm" style="background:#1a2030;color:#5aadee;display:none" id="btn-h-tracking-link" title="Copiar link de seguimiento"><i class="ti ti-eye"></i> Tracking</button>
         </div>
       </div>
     </div>
@@ -259,6 +260,30 @@ export async function renderHistorial(el, { supabase, currentUser }) {
     el.querySelectorAll('[data-ver-foto]').forEach(img => {
       img.onclick = () => ampliarFoto(img.dataset.verFoto)
     })
+
+    // Tracking link button
+    const btnHTracking = el.querySelector('#btn-h-tracking-link')
+    if (p.codigoInterno) {
+      supabase.from('pedido_tracking').select('token').eq('codigo_interno', p.codigoInterno).maybeSingle()
+        .then(({ data: tr }) => {
+          if (tr?.token) {
+            btnHTracking.style.display = 'block'
+            btnHTracking.onclick = () => {
+              const url = `${window.location.origin}/tracking/${tr.token}`
+              navigator.clipboard.writeText(url).then(() => {
+                const orig = btnHTracking.innerHTML
+                btnHTracking.innerHTML = '<i class="ti ti-check"></i> Link copiado'
+                setTimeout(() => { btnHTracking.innerHTML = orig }, 2000)
+              }).catch(() => { prompt('Link de seguimiento:', url) })
+            }
+          } else {
+            btnHTracking.style.display = 'none'
+          }
+        })
+    } else {
+      btnHTracking.style.display = 'none'
+    }
+
     modal.classList.add('open')
   }
 

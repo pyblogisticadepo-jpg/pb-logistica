@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Seguimiento de pedido — PYB</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f0f10;
+      --surface: #18181b;
+      --border: #27272a;
+      --border-light: #3f3f46;
+      --text: #e4e4e7;
+      --text-muted: #71717a;
+      --text-dim: #52525b;
+      --amber: #f59e0b;
+      --amber-dim: #92400e;
+      --green: #22c55e;
+      --green-dim: #14532d;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 32px 16px 64px;
+    }
+
+    /* Brand */
+    .brand {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+    .brand-logo {
+      font-size: 32px;
+      font-weight: 900;
+      color: #fff;
+      letter-spacing: -1.5px;
+      line-height: 1;
+    }
+    .brand-divider {
+      width: 32px;
+      height: 1px;
+      background: var(--amber);
+      margin: 10px auto;
+    }
+    .brand-sub {
+      font-size: 10px;
+      color: var(--text-muted);
+      letter-spacing: 3px;
+      text-transform: uppercase;
+    }
+
+    /* Card */
+    .card {
+      width: 100%;
+      max-width: 520px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .card-header {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border);
+    }
+    .card-label {
+      font-size: 10px;
+      color: var(--text-dim);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .card-cliente {
+      font-size: 18px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    /* Steps */
+    .steps {
+      padding: 24px;
+    }
+
+    .step {
+      display: flex;
+      gap: 16px;
+      position: relative;
+    }
+    .step:not(:last-child)::after {
+      content: '';
+      position: absolute;
+      left: 15px;
+      top: 32px;
+      bottom: -8px;
+      width: 2px;
+      background: var(--border);
+    }
+    .step:not(:last-child) { margin-bottom: 8px; }
+
+    .step-dot {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: 2px solid var(--border);
+      background: var(--bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      position: relative;
+      z-index: 1;
+    }
+    .step-dot svg { width: 14px; height: 14px; }
+
+    .step.done .step-dot {
+      border-color: var(--green-dim);
+      background: var(--green-dim);
+    }
+    .step.done .step-dot svg { color: var(--green); }
+    .step.done::after { background: var(--green-dim); }
+
+    .step.active .step-dot {
+      border-color: var(--amber);
+      background: var(--amber);
+      box-shadow: 0 0 12px rgba(245,158,11,0.4);
+    }
+    .step.active .step-dot svg { color: #000; }
+
+    .step-body { padding-top: 5px; padding-bottom: 16px; }
+    .step-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+    .step.done .step-title { color: var(--text-muted); }
+    .step.active .step-title { color: #fff; font-size: 16px; }
+    .step-desc {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 2px;
+    }
+    .step.active .step-desc { color: var(--text-muted); }
+
+    /* Transport info */
+    .transport-card {
+      margin: 0 24px 24px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 16px;
+    }
+    .transport-label {
+      font-size: 10px;
+      color: var(--text-dim);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    .transport-name {
+      font-size: 16px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+    .transport-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+    .transport-row svg { width: 14px; height: 14px; color: var(--text-dim); flex-shrink: 0; }
+
+    .tel-link {
+      color: var(--amber);
+      text-decoration: none;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+    }
+    .tel-link:hover { text-decoration: underline; }
+
+    /* Copy button */
+    .copy-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 11px;
+      padding: 5px 10px;
+      border-radius: 2px;
+      cursor: pointer;
+      margin-top: 8px;
+      font-family: inherit;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .copy-btn:hover { border-color: var(--amber); color: var(--amber); }
+    .copy-btn svg { width: 12px; height: 12px; }
+
+    /* Remito */
+    .remito-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #1c1c1f;
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 6px 12px;
+      font-size: 12px;
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+      margin: 0 24px 24px;
+    }
+    .remito-badge svg { width: 13px; height: 13px; color: var(--text-dim); }
+
+    /* Status badge */
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      border-radius: 2px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      margin: 0 24px 24px;
+    }
+    .status-badge.amber {
+      background: rgba(245,158,11,0.1);
+      border: 1px solid rgba(245,158,11,0.3);
+      color: var(--amber);
+    }
+    .status-badge.green {
+      background: rgba(34,197,94,0.1);
+      border: 1px solid rgba(34,197,94,0.3);
+      color: var(--green);
+    }
+    .status-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    /* Loading / error */
+    .state-msg {
+      text-align: center;
+      padding: 60px 24px;
+      color: var(--text-muted);
+    }
+    .state-msg .icon { font-size: 32px; margin-bottom: 12px; }
+    .state-msg h2 { font-size: 16px; color: var(--text); margin-bottom: 8px; }
+    .state-msg p { font-size: 13px; }
+
+    /* Footer */
+    .footer {
+      margin-top: 32px;
+      font-size: 11px;
+      color: var(--text-dim);
+      text-align: center;
+    }
+
+    /* Pulse animation for active step */
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 12px rgba(245,158,11,0.4); }
+      50% { box-shadow: 0 0 20px rgba(245,158,11,0.7); }
+    }
+    .step.active .step-dot { animation: pulse 2s infinite; }
+  </style>
+</head>
+<body>
+
+  <div class="brand">
+    <div class="brand-logo">PYB</div>
+    <div class="brand-divider"></div>
+    <div class="brand-sub">Seguimiento de pedido</div>
+  </div>
+
+  <div id="root"></div>
+
+  <div class="footer">PYB Logística</div>
+
+  <script type="module">
+    import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+
+    const SUPABASE_URL = 'https://edkwmethipkowetivbbu.supabase.co'
+    const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVka3dtZXRoaXBrb3dldGl2YmJ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2NDY5MDMsImV4cCI6MjA5NDIyMjkwM30.Qz-nrnELvYiGcT5lkAAnQQAm39F00HD01b-PD2t7P7U'
+    const sb = createClient(SUPABASE_URL, SUPABASE_ANON)
+
+    const root = document.getElementById('root')
+
+    // SVGs
+    const icons = {
+      check: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>`,
+      circle: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4" fill="currentColor"/></svg>`,
+      clock: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+      truck: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>`,
+      phone: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.4 2 2 0 0 1 3.58 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.56a16 16 0 0 0 6.11 6.11l.92-.92a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>`,
+      user: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
+      copy: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`,
+      file: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`,
+    }
+
+    // Get token from URL
+    const path = window.location.pathname  // /tracking/UUID
+    const token = path.split('/tracking/')[1]?.trim()
+
+    if (!token) {
+      root.innerHTML = `<div class="card"><div class="state-msg">
+        <div class="icon">🔍</div>
+        <h2>Link inválido</h2>
+        <p>Este link de seguimiento no es válido.</p>
+      </div></div>`
+    } else {
+      load(token)
+    }
+
+    async function load(token) {
+      root.innerHTML = `<div class="card"><div class="state-msg"><p>Cargando...</p></div></div>`
+
+      const { data, error } = await sb
+        .from('pedido_tracking')
+        .select('*')
+        .eq('token', token)
+        .single()
+
+      if (error || !data) {
+        root.innerHTML = `<div class="card"><div class="state-msg">
+          <div class="icon">❌</div>
+          <h2>Pedido no encontrado</h2>
+          <p>Este link no corresponde a ningún pedido activo.</p>
+        </div></div>`
+        return
+      }
+
+      render(data)
+    }
+
+    function render(t) {
+      const flujo = t.flujo  // 'transporte' | 'retira_cliente'
+      const estado = t.estado
+
+      // Define steps per flujo
+      const stepsTransporte = [
+        { id: 'en_preparacion',     label: 'En preparación',         desc: 'Tu pedido está siendo preparado' },
+        { id: 'preparado',          label: 'Preparado',              desc: 'Listo, esperando al transporte' },
+        { id: 'entregado_transporte', label: 'Entregado al transporte', desc: 'En camino con el transporte' },
+      ]
+      const stepsRetira = [
+        { id: 'en_preparacion',       label: 'En preparación',    desc: 'Tu pedido está siendo preparado' },
+        { id: 'preparado',            label: 'Preparado',         desc: 'Listo en el depósito' },
+        { id: 'listo_para_retirar',   label: 'Listo para retirar', desc: 'Podés pasar a retirar' },
+        { id: 'retirado_transporte',  label: 'Retirado',          desc: 'Retirado por transporte' },
+        { id: 'retirado_cliente',     label: 'Retirado',          desc: 'Retirado por el cliente' },
+      ]
+
+      let steps = flujo === 'transporte' ? stepsTransporte : stepsRetira
+
+      // For retira_cliente, filter the two terminal states to show only the relevant one
+      if (flujo === 'retira_cliente') {
+        const isRetTransporte = estado === 'retirado_transporte'
+        const isRetCliente = estado === 'retirado_cliente'
+        steps = steps.filter(s => {
+          if (s.id === 'retirado_transporte') return isRetTransporte || estado === 'listo_para_retirar' || estado === 'preparado' || estado === 'en_preparacion'
+          if (s.id === 'retirado_cliente') return isRetCliente
+          return true
+        })
+        // Show only one terminal state once we know which path
+        if (isRetTransporte) steps = steps.filter(s => s.id !== 'retirado_cliente')
+        if (isRetCliente) steps = steps.filter(s => s.id !== 'retirado_transporte')
+        if (!isRetTransporte && !isRetCliente) steps = steps.filter(s => s.id !== 'retirado_cliente')
+      }
+
+      const activeIdx = steps.findIndex(s => s.id === estado)
+
+      const isFinal = ['entregado_transporte','retirado_transporte','retirado_cliente'].includes(estado)
+      const isListo = estado === 'listo_para_retirar'
+
+      // Build steps HTML
+      const stepsHtml = steps.map((s, i) => {
+        const isDone = i < activeIdx
+        const isActive = i === activeIdx
+        const cls = isDone ? 'done' : isActive ? 'active' : ''
+        const dotIcon = isDone ? icons.check : isActive ? icons.circle : icons.clock
+        return `<div class="step ${cls}">
+          <div class="step-dot">${dotIcon}</div>
+          <div class="step-body">
+            <div class="step-title">${s.label}</div>
+            ${isActive ? `<div class="step-desc">${s.desc}</div>` : ''}
+          </div>
+        </div>`
+      }).join('')
+
+      // Transport card (shown when relevant)
+      const showTransport = (estado === 'entregado_transporte' || estado === 'retirado_transporte') && t.transporte_nombre
+      const transportHtml = showTransport ? `
+        <div class="transport-card">
+          <div class="transport-label">Transporte</div>
+          <div class="transport-name">${t.transporte_nombre}</div>
+          ${t.transporte_contacto ? `<div class="transport-row">${icons.user}<span>${t.transporte_contacto}</span></div>` : ''}
+          ${t.transporte_telefono ? `<div class="transport-row">${icons.phone}<a href="tel:${t.transporte_telefono}" class="tel-link">${t.transporte_telefono}</a></div>` : ''}
+          <button class="copy-btn" onclick="copyLink()">${icons.copy} Copiar link de seguimiento</button>
+        </div>` : ''
+
+      // Remito
+      const remitoHtml = t.remito_nro && isFinal ? `
+        <div class="remito-badge">${icons.file} Remito N° ${t.remito_nro}</div>` : ''
+
+      // Status badge
+      let badgeHtml = ''
+      if (isListo) {
+        badgeHtml = `<div class="status-badge amber"><div class="status-dot"></div>Listo para retirar</div>`
+      } else if (isFinal) {
+        badgeHtml = `<div class="status-badge green"><div class="status-dot"></div>${estado === 'entregado_transporte' ? 'Entregado al transporte' : 'Retirado'}</div>`
+      }
+
+      root.innerHTML = `
+        <div class="card">
+          <div class="card-header">
+            <div class="card-label">Cliente</div>
+            <div class="card-cliente">${t.cliente_nombre}</div>
+          </div>
+          <div class="steps">${stepsHtml}</div>
+          ${badgeHtml}
+          ${transportHtml}
+          ${remitoHtml}
+          ${!showTransport ? `<div style="padding:0 24px 24px"><button class="copy-btn" onclick="copyLink()">${icons.copy} Copiar link de seguimiento</button></div>` : ''}
+        </div>`
+
+      window.copyLink = () => {
+        navigator.clipboard.writeText(window.location.href)
+        const btn = document.querySelector('.copy-btn')
+        if (btn) { btn.textContent = '✓ Copiado'; setTimeout(() => { btn.innerHTML = icons.copy + ' Copiar link de seguimiento' }, 2000) }
+      }
+    }
+  </script>
+</body>
+</html>
