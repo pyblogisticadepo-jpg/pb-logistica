@@ -691,9 +691,12 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     // Crear registro de tracking (en background, no bloquea)
     try {
       const { data: clienteData } = await supabase
-        .from('clientes').select('email, transporte_tipo').eq('id', clienteId).single()
+        .from('clientes')
+        .select('email, transporte_tipo, transporte_id, transportes(nombre)')
+        .eq('id', clienteId).single()
 
       const flujo = (clienteData?.transporte_tipo === 'retira') ? 'retira_cliente' : 'transporte'
+      const transporteNombre = clienteData?.transportes?.nombre || null
 
       const { data: trackingRecord } = await supabase.from('pedido_tracking').insert({
         codigo_interno: codigoInterno,
@@ -701,13 +704,19 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
         cliente_nombre: clienteNombre,
         cliente_email: clienteData?.email || null,
         flujo,
-        estado: 'en_preparacion'
+        estado: 'en_preparacion',
+        transporte_nombre: transporteNombre
       }).select().single()
 
-      // Enviar email si tiene email (fire and forget)
+      // Enviar email si tiene email (fire and forget, usando fetch directo)
       if (trackingRecord?.id && clienteData?.email) {
-        supabase.functions.invoke('send-tracking-email', {
-          body: { tracking_id: trackingRecord.id }
+        fetch('https://edkwmethipkowetivbbu.supabase.co/functions/v1/send-tracking-email', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVka3dtZXRoaXBrb3dldGl2YmJ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2NDY5MDMsImV4cCI6MjA5NDIyMjkwM30.Qz-nrnELvYiGcT5lkAAnQQAm39F00HD01b-PD2t7P7U'
+          },
+          body: JSON.stringify({ tracking_id: trackingRecord.id })
         }).catch(() => {})
       }
     } catch (_) {}
