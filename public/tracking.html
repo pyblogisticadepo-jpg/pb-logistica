@@ -424,6 +424,7 @@
           <div class="transport-name">${t.transporte_nombre}</div>
           ${t.transporte_contacto ? `<div class="transport-row">${icons.user}<span>${t.transporte_contacto}</span></div>` : ''}
           ${t.transporte_telefono ? `<div class="transport-row">${icons.phone}<a href="tel:${t.transporte_telefono}" class="tel-link">${t.transporte_telefono}</a></div>` : ''}
+          ${t.transporte_web ? `<div class="transport-row"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg><a href="https://${t.transporte_web}" target="_blank" class="tel-link">${t.transporte_web}</a></div>` : ''}
           ${remitoFotos.length > 0 ? `
           <div class="remito-fotos">
             <div class="transport-label" style="margin-bottom:8px">Foto del remito</div>

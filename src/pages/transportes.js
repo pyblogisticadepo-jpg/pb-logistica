@@ -35,6 +35,7 @@ export async function renderTransportes(el, { supabase, currentUser, isObserver 
             <div><label class="form-label">Teléfono</label><input class="form-input" id="t-telefono" placeholder="351-xxx-xxxx"></div>
             <div><label class="form-label">Contacto</label><input class="form-input" id="t-contacto" placeholder="Nombre de contacto"></div>
           </div>
+          <div class="form-row"><label class="form-label">Web</label><input class="form-input" id="t-web" placeholder="andreani.com (sin https://)"></div>
           <div class="form-row"><label class="form-label">Observaciones</label><textarea class="form-textarea" id="t-obs" placeholder="Horarios, aclaraciones..." style="min-height:60px;resize:none"></textarea></div>
           <div class="form-row">
             <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;color:#aaa;">
@@ -108,6 +109,7 @@ export async function renderTransportes(el, { supabase, currentUser, isObserver 
         <div style="font-size:14px;color:#ccc;font-weight:600;margin-bottom:4px">${t.nombre}</div>
         ${t.direccion ? `<div style="font-size:12px;color:#444;margin-bottom:2px"><i class="ti ti-map-pin" style="font-size:11px"></i> ${t.direccion}</div>` : ''}
         ${t.telefono ? `<div style="font-size:12px;color:#333"><i class="ti ti-phone" style="font-size:11px"></i> ${t.telefono}${t.contacto ? ' · ' + t.contacto : ''}</div>` : ''}
+        ${t.web ? `<div style="font-size:12px;color:#333"><i class="ti ti-world" style="font-size:11px"></i> <a href="https://${t.web}" target="_blank" style="color:#4d9eed;text-decoration:none">${t.web}</a></div>` : ''}
         ${t.observaciones ? `<div style="font-size:11px;color:#2a2a2a;margin-top:6px;border-top:1px solid #1a1a1a;padding-top:6px">${t.observaciones}</div>` : ''}
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;flex-shrink:0">
@@ -126,6 +128,7 @@ export async function renderTransportes(el, { supabase, currentUser, isObserver 
     el.querySelector('#t-direccion').value = t.direccion || ''
     el.querySelector('#t-telefono').value = t.telefono || ''
     el.querySelector('#t-contacto').value = t.contacto || ''
+    el.querySelector('#t-web').value = t.web || ''
     el.querySelector('#t-obs').value = t.observaciones || ''
     el.querySelector('#t-retira').checked = t.retira_deposito || false
     modal.classList.add('open')
@@ -135,7 +138,7 @@ export async function renderTransportes(el, { supabase, currentUser, isObserver 
     el.querySelector('#btn-new-transp').onclick = () => {
       editingId = null
       el.querySelector('#modal-transp-title').textContent = 'Nuevo transporte'
-      ;['t-nombre','t-direccion','t-telefono','t-contacto','t-obs'].forEach(id => { el.querySelector('#' + id).value = '' })
+      ;['t-nombre','t-direccion','t-telefono','t-contacto','t-web','t-obs'].forEach(id => { el.querySelector('#' + id).value = '' })
       el.querySelector('#t-retira').checked = false
       modal.classList.add('open')
     }
@@ -150,6 +153,7 @@ export async function renderTransportes(el, { supabase, currentUser, isObserver 
       direccion: el.querySelector('#t-direccion').value.trim() || null,
       telefono: el.querySelector('#t-telefono').value.trim() || null,
       contacto: el.querySelector('#t-contacto').value.trim() || null,
+      web: el.querySelector('#t-web').value.trim().replace(/^https?:\/\//,'') || null,
       observaciones: el.querySelector('#t-obs').value.trim() || null,
       retira_deposito: retira,
       activo: true

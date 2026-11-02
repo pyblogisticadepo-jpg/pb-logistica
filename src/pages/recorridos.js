@@ -812,17 +812,19 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
       try {
         const { data: rp } = await supabase.from('recorrido_pedidos').select('codigo_interno, foto_remito, transporte_nombre').eq('id', pedidoId).single()
         if (rp?.codigo_interno) {
-          let telefono = null, contacto = null
+          let telefono = null, contacto = null, web = null
           if (rp.transporte_nombre) {
-            const { data: transp } = await supabase.from('transportes').select('telefono, contacto').eq('nombre', rp.transporte_nombre).maybeSingle()
+            const { data: transp } = await supabase.from('transportes').select('telefono, contacto, web').eq('nombre', rp.transporte_nombre).maybeSingle()
             telefono = transp?.telefono || null
             contacto = transp?.contacto || null
+            web = transp?.web || null
           }
           await supabase.from('pedido_tracking').update({
             estado: 'entregado_transporte',
             transporte_nombre: rp.transporte_nombre || null,
             transporte_telefono: telefono,
             transporte_contacto: contacto,
+            transporte_web: web,
             foto_remito: rp.foto_remito || null
           }).eq('codigo_interno', rp.codigo_interno)
         }
