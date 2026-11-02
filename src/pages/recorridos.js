@@ -721,6 +721,10 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
     urlsActuales.push(url)
     await supabase.from('recorrido_pedidos').update({ foto_remito: urlsActuales.join(',') }).eq('id', pedidoFotosActivo)
     const { data: pActualizado } = await supabase.from('recorrido_pedidos').select('*').eq('id', pedidoFotosActivo).single()
+    // Sincronizar foto a pedido_tracking si existe registro
+    if (pActualizado?.codigo_interno) {
+      await supabase.from('pedido_tracking').update({ foto_remito: urlsActuales.join(',') }).eq('codigo_interno', pActualizado.codigo_interno)
+    }
     renderListaFotos(pActualizado)
     e.target.value = ''
   }
@@ -816,6 +820,7 @@ export async function renderRecorridos(el, { supabase, currentUser, isObserver }
           }
           await supabase.from('pedido_tracking').update({
             estado: 'entregado_transporte',
+            transporte_nombre: rp.transporte_nombre || null,
             transporte_telefono: telefono,
             transporte_contacto: contacto,
             foto_remito: rp.foto_remito || null
