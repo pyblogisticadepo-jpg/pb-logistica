@@ -434,6 +434,15 @@
           <button class="copy-btn" onclick="copyLink()">${icons.copy} Copiar link de seguimiento</button>
         </div>` : ''
 
+      // Fotos del remito cuando no hay card de transporte (cualquier otro estado)
+      const fotosStandaloneHtml = !showTransport && remitoFotos.length > 0 ? `
+        <div class="transport-card">
+          <div class="transport-label" style="margin-bottom:8px">Foto del remito</div>
+          ${remitoFotos.map((url, i) => `<a href="${url}" target="_blank" class="remito-foto-link">
+            <img src="${url}" alt="Remito ${i+1}" class="remito-foto-img" />
+          </a>`).join('')}
+        </div>` : ''
+
       // Remito
       const remitoHtml = t.remito_nro && isFinal ? `
         <div class="remito-badge">${icons.file} Remito N° ${t.remito_nro}</div>` : ''
@@ -455,6 +464,7 @@
           <div class="steps">${stepsHtml}</div>
           ${badgeHtml}
           ${transportHtml}
+          ${fotosStandaloneHtml}
           ${remitoHtml}
           ${!showTransport ? `<div style="padding:0 24px 24px"><button class="copy-btn" onclick="copyLink()">${icons.copy} Copiar link de seguimiento</button></div>` : ''}
         </div>`
