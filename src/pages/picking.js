@@ -692,10 +692,13 @@ export async function renderPicking(el, { supabase, currentUser, isObserver }) {
     try {
       const { data: clienteData } = await supabase
         .from('clientes')
-        .select('email, transporte_tipo, transporte_id, transportes(nombre)')
+        .select('email, transporte_tipo, transporte_id, transportes(nombre, retira_deposito)')
         .eq('id', clienteId).single()
 
-      const flujo = (clienteData?.transporte_tipo === 'retira') ? 'retira_cliente' : 'transporte'
+      // flujo retira_cliente: tipo 'retira' O tipo 'externo' con transporte que retira en depósito
+      const esRetiraCliente = clienteData?.transporte_tipo === 'retira' ||
+        (clienteData?.transporte_tipo === 'externo' && clienteData?.transportes?.retira_deposito === true)
+      const flujo = esRetiraCliente ? 'retira_cliente' : 'transporte'
       const transporteNombre = clienteData?.transportes?.nombre || null
 
       const { data: trackingRecord } = await supabase.from('pedido_tracking').insert({
